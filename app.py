@@ -11,8 +11,8 @@ app = Flask(__name__)
 
 app.secret_key = os.getenv("FLASK_SECRET_KEY", "dev-secret-change-me")
 
-TEAM_NAME = os.getenv("TEAM_NAME", "Team")
-TEAM_PASSWORD = os.getenv("TEAM_PASSWORD", "password")
+TEAM_NAME = os.getenv("TEAM_NAME", "Embuscade")
+TEAM_PASSWORD = os.getenv("TEAM_PASSWORD", "embu")
 
 DATA_DIR = Path("data")
 PLAYERS_FILE = DATA_DIR / "players.json"
