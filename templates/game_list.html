@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Saved Games - 40K Pairing</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700&family=Roboto:wght@300;400;500&display=swap');
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: 'Roboto', sans-serif;
+      background: radial-gradient(circle at top, #333 0, #050509 50%, #000 100%);
+      color: #f5f5f5;
+      padding: 2rem;
+    }
+
+    a {
+      color: #e57373;
+      text-decoration: none;
+    }
+
+    a:hover {
+      text-decoration: underline;
+    }
+
+    .layout {
+      max-width: 1100px;
+      margin: 0 auto;
+    }
+
+    .top-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 1.5rem;
+    }
+
+    .title-block h1 {
+      margin: 0;
+      font-family: 'Cinzel', serif;
+      font-size: 1.7rem;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+    }
+
+    .title-block p {
+      margin: 0.3rem 0 0;
+      font-size: 0.85rem;
+      color: #bbb;
+    }
+
+    .back-link {
+      font-size: 0.85rem;
+      text-transform: uppercase;
+      letter-spacing: 0.16em;
+    }
+
+    .panel {
+      background: linear-gradient(145deg, rgba(10,10,15,0.96), rgba(5,5,8,0.98));
+      border-radius: 14px;
+      border: 1px solid rgba(255,255,255,0.06);
+      padding: 1.25rem 1.5rem;
+      box-shadow: 0 0 28px rgba(0,0,0,0.85);
+      margin-bottom: 1.5rem;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .panel::before {
+      content: "";
+      position: absolute;
+      inset: -40%;
+      background:
+        radial-gradient(circle at 0% 0%, rgba(255,0,0,0.1), transparent 60%),
+        radial-gradient(circle at 100% 100%, rgba(255,255,255,0.04), transparent 55%);
+      opacity: 0.4;
+      pointer-events: none;
+    }
+
+    .panel-inner {
+      position: relative;
+      z-index: 1;
+    }
+
+    h2 {
+      margin: 0 0 0.75rem;
+      font-size: 1rem;
+      text-transform: uppercase;
+      letter-spacing: 0.18em;
+      font-weight: 500;
+      color: #f5f5f5;
+    }
+
+    .status {
+      font-size: 0.8rem;
+      color: #bbb;
+      margin-bottom: 0.5rem;
+    }
+
+    .status.error {
+      color: #ff8a80;
+    }
+
+    .status.empty {
+      color: #888;
+      font-style: italic;
+    }
+
+    #games-container {
+      display: flex;
+      flex-direction: column;
+      gap: 0.8rem;
+    }
+
+    .game-card {
+      background: rgba(7,7,10,0.96);
+      border-radius: 12px;
+      border: 1px solid rgba(255,255,255,0.05);
+      padding: 0.8rem 0.9rem;
+      box-shadow: 0 0 20px rgba(0,0,0,0.9);
+    }
+
+    .game-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 0.5rem;
+      margin-bottom: 0.4rem;
+    }
+
+    .game-main {
+      display: flex;
+      flex-direction: column;
+      gap: 0.15rem;
+    }
+
+    .game-opponent {
+      font-weight: 500;
+      font-size: 0.95rem;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    .game-meta {
+      font-size: 0.8rem;
+      color: #aaa;
+    }
+
+    .game-actions {
+      display: flex;
+      gap: 0.4rem;
+      flex-wrap: wrap;
+    }
+
+    button {
+      background: linear-gradient(135deg, #b71c1c, #6d0000);
+      color: #f5f5f5;
+      border: 1px solid rgba(255,255,255,0.18);
+      border-radius: 999px;
+      padding: 0.35rem 1rem;
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.16em;
+      cursor: pointer;
+      box-shadow: 0 0 12px rgba(255,0,0,0.25);
+      transition: transform 0.08s ease-out, box-shadow 0.08s ease-out;
+    }
+
+    button:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 0 20px rgba(255,0,0,0.35);
+    }
+
+    button.secondary {
+      background: transparent;
+      box-shadow: none;
+      border-color: rgba(255,255,255,0.18);
+      color: #ddd;
+    }
+
+    button.danger {
+      background: linear-gradient(135deg, #8b0000, #4a0000);
+    }
+
+    .armies {
+      margin-top: 0.4rem;
+      border-top: 1px solid rgba(255,255,255,0.06);
+      padding-top: 0.4rem;
+      display: none;
+    }
+
+    .armies.visible {
+      display: block;
+    }
+
+    .army-item {
+      margin-bottom: 0.4rem;
+      border-radius: 8px;
+      border: 1px solid rgba(255,255,255,0.06);
+      padding: 0.4rem 0.5rem;
+      background: rgba(18,18,25,0.9);
+    }
+
+    .army-title {
+      font-size: 0.8rem;
+      font-weight: 500;
+      margin-bottom: 0.2rem;
+      color: #e0e0e0;
+    }
+
+    pre {
+      margin: 0;
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-family: monospace;
+      font-size: 0.78rem;
+      color: #dcdcdc;
+    }
+  </style>
+</head>
+<body>
+  <div class="layout">
+    <div class="top-bar">
+      <div class="title-block">
+        <h1>Saved Games</h1>
+        <p>Review the foes you have prepared to annihilate.</p>
+      </div>
+      <div>
+        <a href="{{ url_for('index') }}" class="back-link">&larr; Back to Command Centre</a>
+      </div>
+    </div>
+
+    <section class="panel">
+      <div class="panel-inner">
+        <h2>Games</h2>
+        <div id="status" class="status">Loading records from the data-vault...</div>
+        <div id="games-container"></div>
+      </div>
+    </section>
+  </div>
+
+  <script src="{{ url_for('static', filename='js/game_list.js') }}"></script>
+</body>
+</html>

@@ -1,0 +1,20 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+.env
+.venv
+venv/
+
+# Flask
+instance/
+.flaskenv
+
+# Data (keep structure but not content if you want)
+data/*.json
+
+# OS / editor
+.DS_Store
+.idea/
+.vscode/

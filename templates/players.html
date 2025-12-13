@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Players &amp; Lists - 40K Pairing</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700&family=Roboto:wght@300;400;500&display=swap');
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: 'Roboto', sans-serif;
+      background: radial-gradient(circle at top, #333 0, #050509 50%, #000 100%);
+      color: #f5f5f5;
+      padding: 2rem;
+    }
+
+    a {
+      color: #e57373;
+      text-decoration: none;
+    }
+
+    a:hover {
+      text-decoration: underline;
+    }
+
+    .layout {
+      max-width: 1100px;
+      margin: 0 auto;
+    }
+
+    .top-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 1.5rem;
+    }
+
+    .title-block h1 {
+      margin: 0;
+      font-family: 'Cinzel', serif;
+      font-size: 1.7rem;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+    }
+
+    .title-block p {
+      margin: 0.3rem 0 0;
+      font-size: 0.85rem;
+      color: #bbb;
+    }
+
+    .back-link {
+      font-size: 0.85rem;
+      text-transform: uppercase;
+      letter-spacing: 0.16em;
+    }
+
+    .panel {
+      background: linear-gradient(145deg, rgba(10,10,15,0.96), rgba(5,5,8,0.98));
+      border-radius: 14px;
+      border: 1px solid rgba(255,255,255,0.06);
+      padding: 1.25rem 1.5rem;
+      box-shadow: 0 0 28px rgba(0,0,0,0.85);
+      margin-bottom: 1.5rem;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .panel::before {
+      content: "";
+      position: absolute;
+      inset: -40%;
+      background:
+        radial-gradient(circle at 0% 0%, rgba(255,0,0,0.1), transparent 60%),
+        radial-gradient(circle at 100% 100%, rgba(255,255,255,0.04), transparent 55%);
+      opacity: 0.4;
+      pointer-events: none;
+    }
+
+    .panel-inner {
+      position: relative;
+      z-index: 1;
+    }
+
+    h2 {
+      margin: 0 0 0.75rem;
+      font-size: 1rem;
+      text-transform: uppercase;
+      letter-spacing: 0.18em;
+      font-weight: 500;
+      color: #f5f5f5;
+    }
+
+    input[type="text"] {
+      background: #111;
+      border: 1px solid #444;
+      border-radius: 999px;
+      padding: 0.4rem 0.9rem;
+      color: #f5f5f5;
+      font-size: 0.9rem;
+      outline: none;
+      min-width: 200px;
+    }
+
+    input[type="text"]:focus {
+      border-color: #e74c3c;
+    }
+
+    button {
+      background: linear-gradient(135deg, #b71c1c, #6d0000);
+      color: #f5f5f5;
+      border: 1px solid rgba(255,255,255,0.18);
+      border-radius: 999px;
+      padding: 0.45rem 1.2rem;
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.16em;
+      cursor: pointer;
+      margin-left: 0.6rem;
+      box-shadow: 0 0 12px rgba(255,0,0,0.25);
+      transition: transform 0.08s ease-out, box-shadow 0.08s ease-out;
+    }
+
+    button:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 0 20px rgba(255,0,0,0.35);
+    }
+
+    button:disabled {
+      opacity: 0.6;
+      cursor: default;
+      box-shadow: none;
+    }
+
+    #players-container {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 1rem;
+    }
+
+    .player-card {
+      background: rgba(7,7,10,0.96);
+      border-radius: 12px;
+      border: 1px solid rgba(255,255,255,0.04);
+      padding: 0.9rem 0.9rem 1rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.55rem;
+      box-shadow: 0 0 20px rgba(0,0,0,0.9);
+    }
+
+    .player-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 0.5rem;
+    }
+
+    .player-name {
+      font-weight: 500;
+      font-size: 0.95rem;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    .badge {
+      font-size: 0.7rem;
+      padding: 0.1rem 0.5rem;
+      border-radius: 999px;
+      border: 1px solid #444;
+      color: #bbb;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+    }
+
+    .lists-title {
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.16em;
+      color: #aaa;
+      margin-top: 0.2rem;
+    }
+
+    .lists {
+      font-size: 0.85rem;
+    }
+
+    .list-item {
+      border-radius: 8px;
+      border: 1px solid rgba(255,255,255,0.08);
+      padding: 0.4rem 0.5rem;
+      margin-bottom: 0.4rem;
+      background: rgba(18,18,25,0.9);
+    }
+
+    pre {
+      margin: 0;
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-family: monospace;
+      font-size: 0.8rem;
+      color: #e0e0e0;
+    }
+
+    .list-meta {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-top: 0.4rem;
+      font-size: 0.75rem;
+    }
+
+    .list-meta label {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.3rem;
+      cursor: pointer;
+    }
+
+    textarea {
+      width: 100%;
+      min-height: 70px;
+      resize: vertical;
+      margin-top: 0.35rem;
+      background: #111;
+      border: 1px solid #444;
+      border-radius: 8px;
+      padding: 0.45rem 0.55rem;
+      color: #f5f5f5;
+      font-size: 0.8rem;
+      outline: none;
+      font-family: monospace;
+    }
+
+    textarea:focus {
+      border-color: #e74c3c;
+    }
+
+    .add-list-row {
+      display: flex;
+      justify-content: flex-end;
+      margin-top: 0.35rem;
+    }
+
+    .empty-text {
+      font-size: 0.8rem;
+      color: #888;
+      font-style: italic;
+    }
+  </style>
+</head>
+<body>
+  <div class="layout">
+    <div class="top-bar">
+      <div class="title-block">
+        <h1>Players &amp; Army Lists</h1>
+        <p>Track your commanders and their weapons of mass tabletop destruction.</p>
+      </div>
+      <div>
+        <a href="{{ url_for('index') }}" class="back-link">&larr; Back to Command Centre</a>
+      </div>
+    </div>
+
+    <section class="panel">
+      <div class="panel-inner">
+        <h2>Add Player</h2>
+        <div>
+          <input type="text" id="player-name-input" placeholder="Enter player name" />
+          <button id="add-player-btn">Add</button>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-inner">
+        <h2>Roster</h2>
+        <p id="active-counter" class="empty-text" style="margin-top:0;">
+            Active: 0 / 8
+        </p>
+        <div id="players-container">
+          <!-- Filled by JS -->
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <script src="{{ url_for('static', filename='js/players.js') }}"></script>
+</body>
+</html>

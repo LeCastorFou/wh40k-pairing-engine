@@ -1,0 +1,385 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Matchup Matrix - 40K Pairing</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700&family=Roboto:wght@300;400;500&display=swap');
+
+    * {
+      box-sizing: border-box;
+    }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: 'Roboto', sans-serif;
+      background: radial-gradient(circle at top, #333 0, #050509 50%, #000 100%);
+      color: #f5f5f5;
+      padding: 2rem;
+    }
+
+    a {
+      color: #e57373;
+      text-decoration: none;
+    }
+
+    a:hover {
+      text-decoration: underline;
+    }
+
+    .layout {
+      max-width: 1200px;
+      margin: 0 auto;
+      display: flex;
+      flex-direction: column;
+      gap: 1.5rem;
+    }
+
+    .top-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      flex-wrap: wrap;
+      gap: 1rem;
+    }
+
+    .title-block h1 {
+      margin: 0;
+      font-family: 'Cinzel', serif;
+      font-size: 1.7rem;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+    }
+
+    .title-block p {
+      margin: 0.3rem 0 0;
+      font-size: 0.85rem;
+      color: #bbb;
+    }
+
+    .back-link {
+      font-size: 0.85rem;
+      text-transform: uppercase;
+      letter-spacing: 0.16em;
+    }
+
+    .panel {
+      background: linear-gradient(145deg, rgba(10,10,15,0.96), rgba(5,5,8,0.98));
+      border-radius: 14px;
+      border: 1px solid rgba(255,255,255,0.06);
+      padding: 1.25rem 1.5rem;
+      box-shadow: 0 0 28px rgba(0,0,0,0.85);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .panel::before {
+      content: "";
+      position: absolute;
+      inset: -40%;
+      background:
+        radial-gradient(circle at 0% 0%, rgba(255,0,0,0.1), transparent 60%),
+        radial-gradient(circle at 100% 100%, rgba(255,255,255,0.04), transparent 55%);
+      opacity: 0.4;
+      pointer-events: none;
+    }
+
+    .panel-inner {
+      position: relative;
+      z-index: 1;
+    }
+
+    h2 {
+      margin: 0 0 0.75rem;
+      font-size: 1rem;
+      text-transform: uppercase;
+      letter-spacing: 0.18em;
+      font-weight: 500;
+      color: #f5f5f5;
+    }
+
+    .status-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 1rem;
+      flex-wrap: wrap;
+      margin-bottom: 0.75rem;
+      font-size: 0.85rem;
+      color: #bbb;
+    }
+
+    .status-bar .left span {
+      display: inline-block;
+      margin-right: 0.5rem;
+    }
+
+    .status-bar .right {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+    }
+
+    .status-text.unsaved {
+      color: #fff59d;
+    }
+
+    .status-text.error {
+      color: #ff8a80;
+    }
+
+    .status-text.saved {
+      color: #a5d6a7;
+    }
+
+    button {
+      background: linear-gradient(135deg, #b71c1c, #6d0000);
+      color: #f5f5f5;
+      border: 1px solid rgba(255,255,255,0.18);
+      border-radius: 999px;
+      padding: 0.45rem 1.4rem;
+      font-size: 0.8rem;
+      text-transform: uppercase;
+      letter-spacing: 0.16em;
+      cursor: pointer;
+      box-shadow: 0 0 12px rgba(255,0,0,0.25);
+      transition: transform 0.08s ease-out, box-shadow 0.08s ease-out;
+    }
+
+    button:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 0 20px rgba(255,0,0,0.35);
+    }
+
+    button:disabled {
+      opacity: 0.6;
+      cursor: default;
+      box-shadow: none;
+    }
+
+    .matrix-wrapper {
+      overflow-x: auto;
+      padding-bottom: 0.5rem;
+    }
+
+    table.matrix {
+      border-collapse: collapse;
+      width: 100%;
+      min-width: 700px;
+      font-size: 0.8rem;
+    }
+
+    table.matrix th,
+    table.matrix td {
+      border: 1px solid rgba(255,255,255,0.08);
+      padding: 0.35rem 0.4rem;
+      text-align: center;
+      position: relative;
+    }
+
+    table.matrix th {
+      background: rgba(15,15,20,0.95);
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.18em;
+      font-size: 0.7rem;
+      color: #ccc;
+      white-space: nowrap;
+    }
+
+    table.matrix th.sticky-col {
+      position: sticky;
+      left: 0;
+      z-index: 3;
+      background: rgba(15,15,20,1);
+    }
+
+    table.matrix td.sticky-col {
+      position: sticky;
+      left: 0;
+      z-index: 2;
+      background: rgba(10,10,15,0.98);
+      text-align: left;
+      font-weight: 500;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    table.matrix tr:nth-child(even) td:not(.sticky-col) {
+      background: rgba(8,8,12,0.95);
+    }
+
+    table.matrix tr:nth-child(odd) td:not(.sticky-col) {
+      background: rgba(5,5,9,0.95);
+    }
+
+    .player-name-cell {
+      font-size: 0.75rem;
+    }
+
+    .faction-header {
+      position: relative;
+      cursor: default;
+    }
+
+    .faction-name {
+      display: block;
+    }
+
+    .faction-tooltip {
+      position: absolute;
+      left: 50%;
+      top: 100%;
+      transform: translateX(-50%);
+      width: 260px;
+      background: rgba(5,5,8,0.98);
+      border-radius: 8px;
+      border: 1px solid rgba(255,255,255,0.16);
+      padding: 0.5rem;
+      margin-top: 0.3rem;
+      box-shadow: 0 0 20px rgba(0,0,0,0.95);
+      font-size: 0.75rem;
+      color: #eee;
+      text-align: left;
+      z-index: 10;
+      opacity: 0;
+      visibility: hidden;
+      transition: opacity 0.15s ease-out, visibility 0.15s ease-out;
+      white-space: normal;
+    }
+
+    .faction-tooltip pre {
+      margin: 0;
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-family: monospace;
+    }
+
+    .faction-header:hover .faction-tooltip {
+      opacity: 1;
+      visibility: visible;
+    }
+
+    .matrix-cell-btn {
+      width: 100%;
+      height: 32px;
+      border-radius: 6px;
+      border: 1px solid #444;
+      background: transparent;
+      padding: 0;
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      cursor: pointer;
+      color: #f5f5f5;
+      transition: transform 0.05s ease-out, box-shadow 0.05s ease-out, border-color 0.05s;
+      box-shadow: none;
+    }
+
+    .matrix-cell-btn:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 0 10px rgba(255,255,255,0.1);
+      border-color: rgba(255,255,255,0.4);
+    }
+
+    .legend {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.4rem;
+      margin-top: 0.4rem;
+      font-size: 0.75rem;
+    }
+
+    .legend-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.3rem;
+      padding: 0.2rem 0.4rem;
+      border-radius: 999px;
+      background: rgba(10,10,15,0.9);
+      border: 1px solid rgba(255,255,255,0.1);
+    }
+
+    .legend-swatch {
+      width: 14px;
+      height: 14px;
+      border-radius: 3px;
+      border: 1px solid rgba(0,0,0,0.6);
+    }
+  </style>
+</head>
+<body>
+  <div class="layout">
+    <div class="top-bar">
+      <div class="title-block">
+        <h1>Matchup Matrix</h1>
+        <p>Rate how each of your commanders fares against the enemy codex.</p>
+      </div>
+      <div>
+        <a href="{{ url_for('games_list_page') }}" class="back-link">&larr; Back to Games</a>
+      </div>
+    </div>
+
+    <section class="panel">
+      <div class="panel-inner">
+        <h2>Overview</h2>
+        <div class="status-bar">
+          <div class="left">
+            <span id="opponent-name-label">Opponent: —</span>
+            <span id="army-count-label"></span>
+          </div>
+          <div class="right">
+            <span id="matrix-status" class="status-text">Loading...</span>
+            <button id="save-matrix-btn" disabled>Save matrix</button>
+          </div>
+        </div>
+
+        <div class="legend">
+          <div class="legend-item">
+            <span class="legend-swatch" style="background:#6a1b9a;"></span> Gamble
+          </div>
+          <div class="legend-item">
+            <span class="legend-swatch" style="background:#616161;"></span> Don't know
+          </div>
+          <div class="legend-item">
+            <span class="legend-swatch" style="background:#1b5e20;"></span> Easy
+          </div>
+          <div class="legend-item">
+            <span class="legend-swatch" style="background:#2e7d32;"></span> Win
+          </div>
+          <div class="legend-item">
+            <span class="legend-swatch" style="background:#66bb6a;"></span> S-Win
+          </div>
+          <div class="legend-item">
+            <span class="legend-swatch" style="background:#fff176;"></span> S-Loose
+          </div>
+          <div class="legend-item">
+            <span class="legend-swatch" style="background:#fb8c00;"></span> Loose
+          </div>
+          <div class="legend-item">
+            <span class="legend-swatch" style="background:#c62828;"></span> Help
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-inner">
+        <h2>Matrix</h2>
+        <div class="matrix-wrapper">
+          <table class="matrix" id="matrix-table">
+            <!-- Filled by JS -->
+          </table>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    // expose game_id to JS
+    window.GAME_ID = {{ game_id }};
+  </script>
+  <script src="{{ url_for('static', filename='js/game_matrix.js') }}"></script>
+</body>
+</html>
