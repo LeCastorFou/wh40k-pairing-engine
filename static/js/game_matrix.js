@@ -248,3 +248,56 @@ document.addEventListener("DOMContentLoaded", async () => {
     console.error(err);
   }
 });
+
+
+async function optimizePairing() {
+  const box = document.getElementById("optimize-results");
+  box.innerHTML = "Computing optimal pairing...";
+
+  const res = await fetch(`/api/games/${window.GAME_ID}/optimize`);
+  const data = await res.json();
+
+  if (!res.ok) {
+    box.innerHTML = `<div style="color:#ff8a80;">${data.error || "Optimization failed."}</div>`;
+    return;
+  }
+
+  const sols = data.solutions || [];
+  if (!sols.length) {
+    box.innerHTML = `<div style="color:#bbb;">No solutions.</div>`;
+    return;
+  }
+
+  // Render best solution + alternatives
+  let html = "";
+  sols.forEach((sol, idx) => {
+    html += `
+      <div style="border:1px solid rgba(255,255,255,0.08); border-radius:12px; padding:0.8rem; margin-bottom:0.8rem; background:rgba(0,0,0,0.35);">
+        <div style="display:flex; justify-content:space-between; gap:1rem; align-items:center;">
+          <div style="letter-spacing:.14em; text-transform:uppercase; color:#ddd;">
+            ${idx === 0 ? "Best pairing" : `Alternative #${idx}`}
+          </div>
+          <div style="color:#e74c3c; font-weight:600;">
+            Total: ${sol.total_expected} pts
+          </div>
+        </div>
+
+        <div style="margin-top:.6rem;">
+          ${sol.pairings.map(p => `
+            <div style="display:flex; justify-content:space-between; gap:1rem; padding:.35rem .2rem; border-bottom:1px solid rgba(255,255,255,0.06);">
+              <div>${p.player_name} → <strong>${p.faction}</strong></div>
+              <div style="opacity:.85;">${p.state} (${p.expected})</div>
+            </div>
+          `).join("")}
+        </div>
+      </div>
+    `;
+  });
+
+  box.innerHTML = html;
+}
+
+document.addEventListener("DOMContentLoaded", () => {
+  const btn = document.getElementById("optimize-btn");
+  if (btn) btn.addEventListener("click", optimizePairing);
+});

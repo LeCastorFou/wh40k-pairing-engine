@@ -15,6 +15,18 @@ const STATE_CONFIG = {
   HELP:    { label: "Help",   bg: "#c62828",     border: "#b71c1c", color: "#fff" }
 };
 
+// expected score (midpoint of your ranges)
+HELP    = 3.0   // <5
+LOOSE   = 6.5   // 5–8
+S_LOOSE = 9.0   // 8–10
+S_WIN   = 11.0  // 10–12
+WIN     = 13.5  // 12–15
+EASY    = 16.0  // 15+
+UNKNOWN = 10.0  // uncertain
+GAMBLE  = 10.0  // uncertain (same mean, higher risk)
+NONE    = null  // treat as missing
+
+
 // Phases shown on the 8 game slots
 const GAME_PHASES = [
   "First defense",

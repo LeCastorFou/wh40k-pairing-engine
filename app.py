@@ -6,6 +6,8 @@ import json
 from datetime import datetime
 import os 
 import re
+import itertools
+import math
 
 app = Flask(__name__)
 
@@ -29,6 +31,16 @@ DATA_DIR.mkdir(parents=True, exist_ok=True)
 PLAYERS_FILE = DATA_DIR / "players.json"
 GAMES_FILE = DATA_DIR / "games.json"
 
+STATE_TO_SCORE = {
+    "HELP": 3.0,
+    "LOOSE": 6.5,
+    "S_LOOSE": 9.0,
+    "S_WIN": 11.0,
+    "WIN": 13.5,
+    "EASY": 16.0,
+    "UNKNOWN": 10.0,
+    "GAMBLE": 10.0,
+}
 
 
 def login_required(view):
@@ -540,6 +552,93 @@ def api_list_layouts():
         out[scenario] = matches
 
     return jsonify(out)
+
+import itertools
+import math
+
+STATE_TO_SCORE = {
+    "HELP": 3.0,
+    "LOOSE": 6.5,
+    "S_LOOSE": 9.0,
+    "S_WIN": 11.0,
+    "WIN": 13.5,
+    "EASY": 16.0,
+    "UNKNOWN": 10.0,
+    "GAMBLE": 10.0,
+}
+
+@app.route("/api/games/<int:game_id>/optimize", methods=["GET"])
+def api_optimize_pairing(game_id):
+    games = load_games()
+    game = next((g for g in games if g.get("id") == game_id), None)
+    if not game:
+        return jsonify({"error": "Game not found"}), 404
+
+    # Only active players (same logic as your matrix API)
+    players = [p for p in load_players() if p.get("active") is True]
+    armies = game.get("armies", [])
+    matrix = game.get("matrix", {})  # key "playerId-armyIndex" -> state
+
+    # Need exactly 8 and 8 for pairing optimization
+    if len(players) != 8:
+        return jsonify({"error": f"Need exactly 8 active players (found {len(players)})"}), 400
+    if len(armies) != 8:
+        return jsonify({"error": f"Need exactly 8 opponent codex (found {len(armies)})"}), 400
+
+    # Build score table score[i][j]
+    score = []
+    missing = []
+    for i, p in enumerate(players):
+        row = []
+        for j in range(8):
+            key = f"{p['id']}-{j}"
+            state = matrix.get(key)
+            val = STATE_TO_SCORE.get(state)
+            if val is None:
+                missing.append({"player_id": p["id"], "army_index": j})
+                val = -9999.0  # hard-penalize missing cells
+            row.append(val)
+        score.append(row)
+
+    if missing:
+        return jsonify({
+            "error": "Matrix incomplete: some cells are not filled",
+            "missing": missing
+        }), 400
+
+    # brute force best assignments
+    best = []
+    for perm in itertools.permutations(range(8)):  # perm[i] = army assigned to player i
+        total = 0.0
+        for i in range(8):
+            total += score[i][perm[i]]
+        best.append((total, perm))
+
+    best.sort(key=lambda x: x[0], reverse=True)
+    top = best[:5]  # top 5 solutions
+
+    def pack_solution(total, perm):
+        pairings = []
+        for i in range(8):
+            p = players[i]
+            a_idx = perm[i]
+            a = armies[a_idx]
+            state = matrix.get(f"{p['id']}-{a_idx}")
+            pairings.append({
+                "player_id": p["id"],
+                "player_name": p.get("name"),
+                "army_index": a_idx,
+                "faction": a.get("faction"),
+                "state": state,
+                "expected": STATE_TO_SCORE.get(state, 0.0),
+            })
+        return {"total_expected": round(total, 1), "pairings": pairings}
+
+    return jsonify({
+        "mode": "ideal_assignment",
+        "solutions": [pack_solution(t, perm) for (t, perm) in top]
+    })
+
 
 
 if __name__ == "__main__":
