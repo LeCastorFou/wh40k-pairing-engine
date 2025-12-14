@@ -477,6 +477,12 @@ def api_save_game_pairings(game_id):
             return jsonify({"error": "An opponent list is used more than once"}), 400
         if layout_n in used_layouts:
             return jsonify({"error": "A layout number is used more than once"}), 400
+        
+        real_score = p.get("real_score")
+        if real_score is not None:
+            if not isinstance(real_score, int) or not (0 <= real_score <= 20):
+                return jsonify({"error": "real_score must be an integer between 0 and 20"}), 400
+
 
         used_players.add(player_id)
         used_armies.add(army_index)
@@ -638,7 +644,6 @@ def api_optimize_pairing(game_id):
         "mode": "ideal_assignment",
         "solutions": [pack_solution(t, perm) for (t, perm) in top]
     })
-
 
 
 if __name__ == "__main__":

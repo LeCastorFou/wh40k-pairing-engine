@@ -15,17 +15,22 @@ const STATE_CONFIG = {
   HELP:    { label: "Help",   bg: "#c62828",     border: "#b71c1c", color: "#fff" }
 };
 
-// expected score (midpoint of your ranges)
-HELP    = 3.0   // <5
-LOOSE   = 6.5   // 5–8
-S_LOOSE = 9.0   // 8–10
-S_WIN   = 11.0  // 10–12
-WIN     = 13.5  // 12–15
-EASY    = 16.0  // 15+
-UNKNOWN = 10.0  // uncertain
-GAMBLE  = 10.0  // uncertain (same mean, higher risk)
-NONE    = null  // treat as missing
+// Expected score mapping (midpoints of your ranges)
+const STATE_TO_EXPECTED = {
+  HELP: 3.0,       // <5
+  LOOSE: 6.5,      // 5–8
+  S_LOOSE: 9.0,    // 8–10
+  S_WIN: 11.0,     // 10–12
+  WIN: 13.5,       // 12–15
+  EASY: 16.0,      // 15+
+  UNKNOWN: 10.0,   // uncertain
+  GAMBLE: 10.0,    // uncertain
+  NONE: null
+};
 
+function expectedFromState(stateKey) {
+  return (stateKey in STATE_TO_EXPECTED) ? STATE_TO_EXPECTED[stateKey] : null;
+}
 
 // Phases shown on the 8 game slots
 const GAME_PHASES = [
@@ -53,12 +58,13 @@ const SCENARIO_LABELS = {
 let gPlayers = [];
 let gArmies = [];
 let gMatrixStates = {};   // "playerId-armyIndex" -> STATE_KEY
-let gPairings = [];       // array of 8 slot objects {game_no, player_id, army_index, layout_n}
+let gPairings = [];       // 8 slots: {game_no, player_id, army_index, layout_n, real_score}
 let gLayouts = {};        // scenarioKey -> [{n, file}, ...]
 
 let gDirtyPairings = false;
 let gActiveSlot = null;
 let gScenario = null;
+
 /* =========================
    Utilities
    ========================= */
@@ -110,20 +116,30 @@ function scenarioLabel(key) {
 
 function ensure8Slots(pairingsFromServer) {
   const byGameNo = {};
-  (pairingsFromServer || []).forEach(p => { byGameNo[p.game_no] = p; });
+  (pairingsFromServer || []).forEach(p => {
+    if (p && typeof p.game_no === "number") byGameNo[p.game_no] = p;
+  });
 
   const slots = [];
   for (let i = 1; i <= 8; i++) {
     const existing = byGameNo[i];
+
     if (existing) {
       slots.push({
         game_no: i,
-        player_id: existing.player_id ?? null,
-        army_index: (existing.army_index === 0 || existing.army_index) ? existing.army_index : null,
-        layout_n: existing.layout_n ?? null
+        player_id: (typeof existing.player_id === "number") ? existing.player_id : null,
+        army_index: (typeof existing.army_index === "number") ? existing.army_index : null,
+        layout_n: (typeof existing.layout_n === "number") ? existing.layout_n : null,
+        real_score: (typeof existing.real_score === "number") ? existing.real_score : null
       });
     } else {
-      slots.push({ game_no: i, player_id: null, army_index: null, layout_n: null });
+      slots.push({
+        game_no: i,
+        player_id: null,
+        army_index: null,
+        layout_n: null,
+        real_score: null
+      });
     }
   }
   return slots;
@@ -165,7 +181,6 @@ function populateLayoutOptions(selectEl, selectedN) {
 
   if (selectedN) selectEl.value = String(selectedN);
 }
-
 
 function renderLayoutsStrip() {
   const strip = document.getElementById("layouts-strip");
@@ -223,7 +238,6 @@ function renderLayoutsStrip() {
   });
 }
 
-
 /* =========================
    Rendering: Matrix + Slots + Summary
    ========================= */
@@ -234,7 +248,7 @@ function buildMatrixTable() {
   table.innerHTML = "";
 
   const usedRows = new Set(gPairings.filter(p => p.player_id).map(p => p.player_id));
-  const usedCols = new Set(gPairings.filter(p => p.army_index !== null && p.army_index !== undefined).map(p => p.army_index));
+  const usedCols = new Set(gPairings.filter(p => typeof p.army_index === "number").map(p => p.army_index));
 
   // ---- header
   const thead = document.createElement("thead");
@@ -316,20 +330,20 @@ function buildMatrixTable() {
 
         const slot = gPairings.find(s => s.game_no === gActiveSlot);
         if (!gScenario) {
-            alert("Select a Scenario first (Layouts section).");
-            return;
+          alert("Select a Scenario first (Layouts section).");
+          return;
         }
         if (!slot || !slot.layout_n) {
-            alert("Select a Layout # for this game first.");
-            return;
+          alert("Select a Layout # for this game first.");
+          return;
         }
-        
+
         const usedByOther = gPairings.some(s =>
-            s.game_no !== slot.game_no && s.layout_n === slot.layout_n
+          s.game_no !== slot.game_no && s.layout_n === slot.layout_n
         );
         if (usedByOther) {
-            alert("This layout number is already taken. Choose another.");
-            return;
+          alert("This layout number is already taken. Choose another.");
+          return;
         }
 
         assignPairingToSlot(gActiveSlot, player.id, armyIdx);
@@ -372,34 +386,28 @@ function buildGameSlots() {
     left.appendChild(phaseSpan);
 
     const right = document.createElement("div");
-
     const selectBtn = document.createElement("button");
     selectBtn.textContent = "Select pairing";
     selectBtn.style.marginTop = "0";
-    selectBtn.addEventListener("click", () => {
-      setActiveSlot(slot.game_no);
-    });
-
+    selectBtn.addEventListener("click", () => setActiveSlot(slot.game_no));
     right.appendChild(selectBtn);
 
     header.appendChild(left);
     header.appendChild(right);
     card.appendChild(header);
 
-    // Content (who vs who + matchup badge)
     const content = document.createElement("div");
     content.className = "game-content";
     content.id = `game-content-${slot.game_no}`;
     card.appendChild(content);
 
-    // Controls: Scenario + Layout
+    // Layout select
     const controls = document.createElement("div");
     controls.style.display = "flex";
     controls.style.gap = "0.4rem";
     controls.style.flexWrap = "wrap";
     controls.style.marginTop = "0.35rem";
 
-   
     const layoutSelect = document.createElement("select");
     layoutSelect.style.background = "#111";
     layoutSelect.style.border = "1px solid #444";
@@ -408,10 +416,7 @@ function buildGameSlots() {
     layoutSelect.style.padding = "0.25rem 0.6rem";
     layoutSelect.style.fontSize = "0.7rem";
 
-    // init values
     populateLayoutOptions(layoutSelect, slot.layout_n);
-
-
 
     layoutSelect.addEventListener("change", () => {
       slot.layout_n = layoutSelect.value ? parseInt(layoutSelect.value, 10) : null;
@@ -420,19 +425,13 @@ function buildGameSlots() {
       refreshGameCards();
       refreshSummaryTable();
 
-      // Update strip
-      if (gActiveSlot === slot.game_no) {
-        renderLayoutsStrip();
-      }
-
-      // Also refresh all dropdowns so used layouts disappear everywhere
+      if (gActiveSlot === slot.game_no) renderLayoutsStrip();
       refreshAllLayoutDropdowns();
     });
 
     controls.appendChild(layoutSelect);
     card.appendChild(controls);
 
-    // Quick clear slot button (ergonomic)
     const clearBtn = document.createElement("button");
     clearBtn.textContent = "Clear";
     clearBtn.style.marginTop = "0.35rem";
@@ -443,6 +442,7 @@ function buildGameSlots() {
       slot.player_id = null;
       slot.army_index = null;
       slot.layout_n = null;
+      slot.real_score = null;
       markPairingsDirty();
       buildMatrixTable();
       refreshGameCards();
@@ -476,7 +476,6 @@ function refreshAllLayoutDropdowns() {
   renderLayoutsStrip();
 }
 
-
 function refreshGameCards() {
   gPairings.forEach(slot => {
     const content = document.getElementById(`game-content-${slot.game_no}`);
@@ -486,13 +485,12 @@ function refreshGameCards() {
     const card = content.parentElement;
     if (card) card.classList.toggle("active", slot.game_no === gActiveSlot);
 
-    if (!slot.player_id || slot.army_index === null || slot.army_index === undefined) {
+    if (!slot.player_id || typeof slot.army_index !== "number") {
       const span = document.createElement("span");
       span.textContent = "No pairing yet.";
       span.style.color = "#888";
       content.appendChild(span);
 
-      // Show scenario/layout status
       const meta = document.createElement("span");
       meta.style.color = "#aaa";
       meta.style.marginTop = "0.1rem";
@@ -546,10 +544,10 @@ function refreshSummaryTable() {
 
   table.innerHTML = "";
 
-  const filled = gPairings.filter(
-    p => p.player_id && p.army_index !== null && p.army_index !== undefined
-  );
+  const existingBox = document.getElementById("team-total-box");
+  if (existingBox) existingBox.remove();
 
+  const filled = gPairings.filter(p => p.player_id && typeof p.army_index === "number");
   if (!filled.length) {
     statusEl.textContent = "No pairings yet. Start with Game 1.";
     statusEl.className = "status-text";
@@ -561,19 +559,20 @@ function refreshSummaryTable() {
 
   const thead = document.createElement("thead");
   const hr = document.createElement("tr");
-
-  const headers = ["Game", "Phase", "Your player & list", "Opponent codex", "Scenario", "Layout", "Matchup"];
+  const headers = ["Game", "Phase", "Your player & list", "Opponent codex", "Scenario", "Layout", "Matchup", "Expected", "Real", "Δ"];
   headers.forEach(h => {
     const th = document.createElement("th");
     th.textContent = h;
     hr.appendChild(th);
   });
-
   thead.appendChild(hr);
   table.appendChild(thead);
 
   const tbody = document.createElement("tbody");
   const sorted = [...filled].sort((a, b) => a.game_no - b.game_no);
+
+  let totalReal = 0;
+  let realCount = 0;
 
   sorted.forEach(slot => {
     const tr = document.createElement("tr");
@@ -606,11 +605,13 @@ function refreshSummaryTable() {
     tdLayout.textContent = slot.layout_n ? `#${slot.layout_n}` : "—";
     tr.appendChild(tdLayout);
 
-    const tdMatch = document.createElement("td");
+    // Matchup badge
     const key = `${slot.player_id}-${slot.army_index}`;
     const stateKey = gMatrixStates[key] || "NONE";
     const cfg = STATE_CONFIG[stateKey] || STATE_CONFIG.NONE;
+    const exp = expectedFromState(stateKey);
 
+    const tdMatch = document.createElement("td");
     const badge = document.createElement("span");
     badge.style.display = "inline-block";
     badge.style.padding = "0.1rem 0.5rem";
@@ -620,42 +621,122 @@ function refreshSummaryTable() {
     badge.style.background = cfg.bg;
     badge.style.color = cfg.color || "#f5f5f5";
     badge.textContent = cfg.label || "N/A";
-
     tdMatch.appendChild(badge);
     tr.appendChild(tdMatch);
+
+    const tdExpected = document.createElement("td");
+    tdExpected.textContent = (typeof exp === "number") ? exp.toFixed(1) : "—";
+    tr.appendChild(tdExpected);
+
+    // Real score input
+    const tdReal = document.createElement("td");
+    const input = document.createElement("input");
+    input.type = "number";
+    input.min = "0";
+    input.max = "20";
+    input.step = "1";
+    input.value = (typeof slot.real_score === "number") ? String(slot.real_score) : "";
+    input.placeholder = "0-20";
+    input.style.width = "70px";
+    input.style.background = "#111";
+    input.style.border = "1px solid #444";
+    input.style.borderRadius = "10px";
+    input.style.color = "#f5f5f5";
+    input.style.padding = "0.25rem 0.45rem";
+
+    input.addEventListener("change", () => {
+      const v = input.value.trim();
+      slot.real_score = v === "" ? null : Math.max(0, Math.min(20, parseInt(v, 10)));
+      input.value = (slot.real_score === null) ? "" : String(slot.real_score);
+      markPairingsDirty();
+      refreshSummaryTable();
+    });
+
+    tdReal.appendChild(input);
+    tr.appendChild(tdReal);
+
+    // Delta
+    const tdDelta = document.createElement("td");
+    if (typeof exp === "number" && typeof slot.real_score === "number") {
+      const d = slot.real_score - exp;
+      tdDelta.textContent = (d >= 0 ? "+" : "") + d.toFixed(1);
+      tdDelta.style.color = d >= 0 ? "#66bb6a" : "#ff8a80";
+    } else {
+      tdDelta.textContent = "—";
+      tdDelta.style.color = "#aaa";
+    }
+    tr.appendChild(tdDelta);
+
+    if (typeof slot.real_score === "number") {
+      totalReal += slot.real_score;
+      realCount += 1;
+    }
 
     tbody.appendChild(tr);
   });
 
   table.appendChild(tbody);
+
+  // Totals box
+  const box = document.createElement("div");
+  box.id = "team-total-box";
+  box.style.marginTop = "0.75rem";
+  box.style.display = "flex";
+  box.style.flexWrap = "wrap";
+  box.style.gap = "0.6rem";
+  box.style.alignItems = "center";
+
+  const totalPill = document.createElement("div");
+  totalPill.className = "status-text";
+  totalPill.style.padding = "0.35rem 0.8rem";
+  totalPill.style.border = "1px solid rgba(255,255,255,0.12)";
+  totalPill.style.borderRadius = "999px";
+  totalPill.style.background = "rgba(0,0,0,0.35)";
+  totalPill.textContent = `Total real: ${totalReal} / 160 (${realCount}/8 filled)`;
+
+  const resultPill = document.createElement("div");
+  resultPill.style.padding = "0.35rem 0.8rem";
+  resultPill.style.borderRadius = "999px";
+  resultPill.style.border = "1px solid rgba(255,255,255,0.12)";
+  resultPill.style.background = "rgba(0,0,0,0.35)";
+  resultPill.style.textTransform = "uppercase";
+  resultPill.style.letterSpacing = "0.12em";
+
+  let verdict = "—";
+  if (realCount === 8) {
+    if (totalReal < 75) verdict = "Loss";
+    else if (totalReal <= 85) verdict = "Draw";
+    else verdict = "Win";
+  }
+  resultPill.textContent = `Result: ${verdict}`;
+
+  box.appendChild(totalPill);
+  box.appendChild(resultPill);
+
+  table.parentElement.appendChild(box);
 }
 
 function setActiveSlot(gameNo) {
   gActiveSlot = gameNo;
 
-  // highlight slot card
   const cards = document.querySelectorAll(".game-card");
   cards.forEach(card => {
     const no = parseInt(card.dataset.gameNo, 10);
     card.classList.toggle("active", no === gameNo);
   });
 
-  // Update layouts strip for active slot
-  const slot = gPairings.find(s => s.game_no === gameNo);
   renderLayoutsStrip();
-
   setFightStatus(`Selecting pairing for Game ${gameNo}. Choose Scenario/Layout, then click a matrix cell.`, "unsaved");
 }
 
 function assignPairingToSlot(gameNo, playerId, armyIndex) {
   // Enforce unique player and unique opponent army across slots.
-  // If used elsewhere, clear those slots.
   gPairings.forEach(slot => {
     if (slot.game_no !== gameNo) {
       if (slot.player_id === playerId || slot.army_index === armyIndex) {
         slot.player_id = null;
         slot.army_index = null;
-        // keep scenario/layout or clear? here we keep, so you can reuse layout choice if you want
+        slot.real_score = null;
       }
     }
   });
@@ -713,14 +794,13 @@ async function savePairings() {
 function resetPairings() {
   if (!confirm("Reset all pairings and start from scratch?")) return;
 
-    
   gScenario = null;
   const scenarioSelect = document.getElementById("scenario-select");
   if (scenarioSelect) scenarioSelect.value = "";
 
   gPairings = [];
   for (let i = 1; i <= 8; i++) {
-    gPairings.push({ game_no: i, player_id: null, army_index: null, layout_n: null });
+    gPairings.push({ game_no: i, player_id: null, army_index: null, layout_n: null, real_score: null });
   }
 
   buildGameSlots();
@@ -735,7 +815,6 @@ function resetPairings() {
 
   setFightStatus("Pairings reset. Pick Game 1 and start again.", "unsaved");
   setActiveSlot(1);
-  
 }
 
 /* =========================
@@ -767,18 +846,12 @@ async function loadFightData() {
 
   // 2) Load layouts inventory
   const resLayouts = await fetch("/api/layouts");
-  if (resLayouts.ok) {
-    gLayouts = await resLayouts.json();
-  } else {
-    gLayouts = {};
-  }
+  gLayouts = resLayouts.ok ? await resLayouts.json() : {};
 
   // 3) Load existing pairings
   const resPairings = await fetch(`/api/games/${window.GAME_ID}/pairings`);
   let pairingsData = { pairings: [] };
-  if (resPairings.ok) {
-    pairingsData = await resPairings.json();
-  }
+  if (resPairings.ok) pairingsData = await resPairings.json();
 
   gPairings = ensure8Slots(pairingsData.pairings);
 
@@ -792,10 +865,8 @@ async function loadFightData() {
   refreshAllLayoutDropdowns();
   renderLayoutsStrip();
 
-
   gDirtyPairings = false;
   setFightStatus("Loaded. Start with Game 1.");
-
   setActiveSlot(1);
 }
 
@@ -810,33 +881,33 @@ document.addEventListener("DOMContentLoaded", async () => {
   const resetBtn = document.getElementById("fight-reset-btn");
   if (resetBtn) resetBtn.addEventListener("click", resetPairings);
 
+  const scenarioSelect = document.getElementById("scenario-select");
+  if (scenarioSelect) {
+    scenarioSelect.addEventListener("change", () => {
+      const newScenario = scenarioSelect.value || null;
+
+      // If changing scenario mid-run, clear ALL chosen layouts (but keep pairings)
+      if (gScenario && newScenario && gScenario !== newScenario) {
+        const ok = confirm("Changing scenario will clear all selected layout numbers. Continue?");
+        if (!ok) {
+          scenarioSelect.value = gScenario;
+          return;
+        }
+        gPairings.forEach(p => { p.layout_n = null; });
+        markPairingsDirty();
+      }
+
+      gScenario = newScenario;
+      renderLayoutsStrip();
+      refreshAllLayoutDropdowns();
+      refreshGameCards();
+      refreshSummaryTable();
+    });
+  }
+
   try {
     await loadFightData();
   } catch (err) {
     console.error(err);
   }
-  const scenarioSelect = document.getElementById("scenario-select");
-    if (scenarioSelect) {
-    scenarioSelect.addEventListener("change", () => {
-        const newScenario = scenarioSelect.value || null;
-
-        // If changing scenario mid-run, clear ALL chosen layouts (but keep pairings)
-        if (gScenario && newScenario && gScenario !== newScenario) {
-        const ok = confirm("Changing scenario will clear all selected layout numbers. Continue?");
-        if (!ok) {
-            scenarioSelect.value = gScenario;
-            return;
-        }
-        gPairings.forEach(p => { p.layout_n = null; });
-        markPairingsDirty();
-        }
-
-        gScenario = newScenario;
-        renderLayoutsStrip();
-        refreshAllLayoutDropdowns();
-        refreshGameCards();
-        refreshSummaryTable();
-    });
-    }
-
 });
