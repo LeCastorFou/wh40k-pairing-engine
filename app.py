@@ -11,12 +11,24 @@ app = Flask(__name__)
 
 app.secret_key = os.getenv("FLASK_SECRET_KEY", "dev-secret-change-me")
 
-TEAM_NAME = os.getenv("TEAM_NAME", "Embuscade")
 TEAM_PASSWORD = os.getenv("TEAM_PASSWORD", "embu")
 
-DATA_DIR = Path("data")
+def slugify(s: str) -> str:
+    s = (s or "").strip().lower()
+    s = re.sub(r"[^a-z0-9]+", "_", s)
+    s = re.sub(r"_+", "_", s).strip("_")
+    return s or "team"
+
+TEAM_NAME = os.getenv("TEAM_NAME", "Embuscade")
+TEAM_SLUG = os.getenv("TEAM_SLUG", slugify(TEAM_NAME))
+
+# In container we always use /app/data (mounted from host)
+DATA_DIR = Path(os.getenv("DATA_DIR", "/app/data"))
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+
 PLAYERS_FILE = DATA_DIR / "players.json"
-GAMES_FILE = DATA_DIR / "games.json" 
+GAMES_FILE = DATA_DIR / "games.json"
+
 
 
 def login_required(view):
