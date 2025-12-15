@@ -333,18 +333,20 @@ function buildMatrixTable() {
           alert("Select a Scenario first (Layouts section).");
           return;
         }
-        if (!slot || !slot.layout_n) {
-          alert("Select a Layout # for this game first.");
+        if (!gScenario) {
+          alert("Select a Scenario first (Layouts section).");
           return;
         }
 
-        const usedByOther = gPairings.some(s =>
-          s.game_no !== slot.game_no && s.layout_n === slot.layout_n
-        );
-        if (usedByOther) {
-          alert("This layout number is already taken. Choose another.");
-          return;
+        // Allow pairing first, layout later
+        assignPairingToSlot(gActiveSlot, player.id, armyIdx);
+
+        // UX hint: remind user to pick a layout for this game
+        const slotAfter = gPairings.find(s => s.game_no === gActiveSlot);
+        if (slotAfter && !slotAfter.layout_n) {
+          setFightStatus(`Pairing set for Game ${gActiveSlot}. Now choose a Layout # for this game.`, "unsaved");
         }
+
 
         assignPairingToSlot(gActiveSlot, player.id, armyIdx);
       });
