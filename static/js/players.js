@@ -94,9 +94,16 @@ function renderPlayers(players) {
     left.style.alignItems = "center";
     left.style.gap = "0.6rem";
 
-    const title = document.createElement("div");
-    title.className = "player-name";
+    const title = document.createElement("a");
+    title.href = `/players/${player.id}`;
     title.textContent = player.name;
+    title.style.color = "#f5f5f5";
+    title.style.textDecoration = "none";
+    title.style.fontFamily = "Cinzel, serif";
+    title.style.letterSpacing = "0.12em";
+    title.style.textTransform = "uppercase";
+    title.addEventListener("mouseenter", () => title.style.textDecoration = "underline");
+    title.addEventListener("mouseleave", () => title.style.textDecoration = "none");
 
     // ✅ ACTIVE CHECKBOX (this is the key)
     const activeLabel = document.createElement("label");

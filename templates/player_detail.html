@@ -1,0 +1,126 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Player Profile</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700&family=Roboto:wght@300;400;500&display=swap');
+    body{
+      margin:0; padding:2rem;
+      font-family:'Roboto',sans-serif;
+      background: radial-gradient(circle at top, #333 0, #050509 50%, #000 100%);
+      color:#f5f5f5;
+    }
+    .wrap{max-width:1100px;margin:0 auto;}
+    a{color:#e57373;text-decoration:none;}
+    a:hover{text-decoration:underline;}
+    .panel{
+      background: linear-gradient(145deg, rgba(10,10,15,0.96), rgba(5,5,8,0.98));
+      border:1px solid rgba(255,255,255,0.06);
+      border-radius:14px;
+      padding:1.25rem 1.5rem;
+      box-shadow:0 0 28px rgba(0,0,0,0.85);
+      margin-bottom: 1rem;
+    }
+    h1{font-family:'Cinzel',serif;letter-spacing:.12em;text-transform:uppercase;margin:0;}
+    .meta{color:#bbb;margin:.35rem 0 0;}
+    .grid{display:grid;grid-template-columns: 1fr 1fr; gap: 1rem;}
+    @media(max-width:900px){.grid{grid-template-columns:1fr;}}
+    textarea,input,select{
+      width:100%;
+      background:#111;border:1px solid #444;border-radius:10px;
+      color:#f5f5f5;padding:.5rem .6rem;outline:none;
+      font-size:.9rem;
+    }
+    textarea{min-height:110px; resize:vertical; font-family: monospace;}
+    button{
+      background: linear-gradient(135deg, #b71c1c, #6d0000);
+      color:#f5f5f5;border:1px solid rgba(255,255,255,0.18);
+      border-radius:999px;padding:.5rem 1.2rem;
+      font-size:.8rem;text-transform:uppercase;letter-spacing:.16em;
+      cursor:pointer; box-shadow:0 0 12px rgba(255,0,0,0.25);
+    }
+    button:hover{transform: translateY(-1px);}
+    .pill{
+      display:inline-block; padding:.2rem .7rem; border-radius:999px;
+      border:1px solid rgba(255,255,255,0.12);
+      background:rgba(0,0,0,0.35); color:#ddd;
+      font-size:.8rem;
+    }
+    table{width:100%; border-collapse:collapse; margin-top:.6rem;}
+    th,td{padding:.6rem .5rem;border-bottom:1px solid rgba(255,255,255,0.08);font-size:.9rem;}
+    th{text-align:left;color:#ddd;text-transform:uppercase;letter-spacing:.12em;font-size:.75rem;}
+    .muted{color:#aaa;}
+    .res-win{color:#66bb6a;}
+    .res-draw{color:#fff176;}
+    .res-loss{color:#ff8a80;}
+    .row-actions{display:flex;justify-content:flex-end;}
+    .btn-ghost{
+      background:transparent; box-shadow:none;
+      border:1px solid rgba(255,255,255,0.14);
+      color:#ccc;
+    }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div style="display:flex;justify-content:space-between;align-items:flex-start;gap:1rem;flex-wrap:wrap;">
+      <div>
+        <h1 id="player-name">Player</h1>
+        <div class="meta">
+          <span class="pill" id="winrate-pill">Winrate: —</span>
+          <span class="pill" id="matches-pill" style="margin-left:.4rem;">Matches: —</span>
+        </div>
+      </div>
+      <div>
+        <a href="{{ url_for('players_page') }}">← Back to roster</a>
+      </div>
+    </div>
+
+    <div class="grid" style="margin-top:1rem;">
+      <div class="panel">
+        <h2 style="margin:0 0 .6rem; text-transform:uppercase; letter-spacing:.12em; font-size:.9rem;">Army Lists</h2>
+        <div id="lists-box" class="muted">Loading…</div>
+      </div>
+
+      <div class="panel">
+        <h2 style="margin:0 0 .6rem; text-transform:uppercase; letter-spacing:.12em; font-size:.9rem;">Add Match</h2>
+
+        <div style="display:grid; gap:.6rem;">
+          <input id="match-faction" type="text" placeholder="Faction encountered (e.g. Orks)" />
+          <div style="display:grid; grid-template-columns: 1fr 1fr; gap:.6rem;">
+            <select id="match-result">
+              <option value="WIN">WIN</option>
+              <option value="DRAW">DRAW</option>
+              <option value="LOSS">LOSS</option>
+            </select>
+            <select id="match-level">
+              <option value="1">Level 1 (new)</option>
+              <option value="2">Level 2</option>
+              <option value="3" selected>Level 3 (solid)</option>
+              <option value="4">Level 4</option>
+              <option value="5">Level 5 (top)</option>
+            </select>
+          </div>
+          <textarea id="match-comment" placeholder="Comment (plan, mistakes, key units, etc.)"></textarea>
+          <div style="display:flex;justify-content:flex-end;">
+            <button id="add-match-btn">Add match</button>
+          </div>
+          <div id="err" class="muted" style="color:#ff8a80;"></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <h2 style="margin:0 0 .6rem; text-transform:uppercase; letter-spacing:.12em; font-size:.9rem;">Match History</h2>
+      <div id="history-box" class="muted">Loading…</div>
+    </div>
+
+  </div>
+
+  <script>
+    window.PLAYER_ID = {{ player_id }};
+  </script>
+  <script src="{{ url_for('static', filename='js/player_detail.js') }}"></script>
+</body>
+</html>
