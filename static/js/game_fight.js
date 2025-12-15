@@ -422,7 +422,18 @@ function buildGameSlots() {
 
     layoutSelect.addEventListener("change", () => {
       slot.layout_n = layoutSelect.value ? parseInt(layoutSelect.value, 10) : null;
-
+      
+      if (slot.layout_n !== null) {
+        const usedByOther = gPairings.some(s =>
+          s.game_no !== slot.game_no && typeof s.layout_n === "number" && s.layout_n === slot.layout_n
+        );
+        if (usedByOther) {
+          alert("This layout number is already taken. Choose another.");
+          slot.layout_n = null;
+          layoutSelect.value = "";
+          return;
+        }
+      }
       markPairingsDirty();
       refreshGameCards();
       refreshSummaryTable();
