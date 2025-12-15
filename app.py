@@ -367,7 +367,19 @@ def api_get_game_matrix(game_id):
     if not game:
         return jsonify({"error": "Game not found"}), 404
 
-    players = [p for p in load_players() if p.get("active") is True]
+    all_players = load_players()
+    roster_ids = game.get("player_ids")
+
+    # If roster is set and valid: return ONLY these 8 players (in roster order)
+    if isinstance(roster_ids, list) and len(roster_ids) == 8 and all(isinstance(x, int) for x in roster_ids):
+        by_id = {p.get("id"): p for p in all_players if isinstance(p, dict)}
+        players = [by_id.get(pid) for pid in roster_ids]
+        players = [p for p in players if p is not None]  # drop missing
+        roster_locked = (len(players) == 8)
+    else:
+        players = []
+        roster_locked = False
+
     matrix = game.get("matrix", {})
 
     return jsonify({
@@ -376,10 +388,14 @@ def api_get_game_matrix(game_id):
             "opponent_name": game.get("opponent_name"),
             "armies": game.get("armies", []),
             "created_at": game.get("created_at"),
+            "player_ids": roster_ids if isinstance(roster_ids, list) else []
         },
+        "roster_locked": roster_locked,
         "players": players,
+        "all_players": all_players if not roster_locked else [],
         "matrix": matrix
     })
+
 
 
 ALLOWED_MATRIX_STATES = {
@@ -644,6 +660,41 @@ def api_optimize_pairing(game_id):
         "mode": "ideal_assignment",
         "solutions": [pack_solution(t, perm) for (t, perm) in top]
     })
+
+@app.route("/api/games/<int:game_id>/roster", methods=["POST"])
+@login_required
+def api_set_game_roster(game_id):
+    games = load_games()
+    game = next((g for g in games if g.get("id") == game_id), None)
+    if not game:
+        return jsonify({"error": "Game not found"}), 404
+
+    # Don't allow changes once locked (roster locked at matrix creation)
+    if isinstance(game.get("player_ids"), list) and len(game["player_ids"]) == 8:
+        return jsonify({"error": "Roster already locked for this game"}), 400
+
+    payload = request.get_json(silent=True) or {}
+    player_ids = payload.get("player_ids")
+
+    if not isinstance(player_ids, list) or len(player_ids) != 8:
+        return jsonify({"error": "You must select exactly 8 players"}), 400
+    if len(set(player_ids)) != 8 or not all(isinstance(x, int) for x in player_ids):
+        return jsonify({"error": "Invalid player_ids"}), 400
+
+    players = load_players()
+    existing_ids = {p.get("id") for p in players if isinstance(p, dict)}
+    if any(pid not in existing_ids for pid in player_ids):
+        return jsonify({"error": "One or more player ids do not exist"}), 400
+
+    # Lock roster + reset game state
+    game["player_ids"] = player_ids
+    game["matrix"] = {}
+    game["pairings"] = []
+    save_games(games)
+
+    return jsonify({"status": "ok", "player_ids": player_ids})
+
+
 
 
 if __name__ == "__main__":

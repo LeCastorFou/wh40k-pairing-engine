@@ -26,6 +26,9 @@ let gPlayers = [];
 let gArmies = [];
 let gMatrix = {};      // key: "playerId-armyIndex" -> stateKey
 let gDirty = false;
+let gRosterLocked = false;
+let gAllPlayers = [];
+
 
 function setStatus(text, mode = "normal") {
   const el = document.getElementById("matrix-status");
@@ -173,6 +176,120 @@ function buildMatrixTable() {
   table.appendChild(tbody);
 }
 
+
+function renderRosterPicker() {
+  const panel = document.getElementById("roster-panel");
+  if (!panel) return;
+
+  panel.style.display = "block";
+  panel.innerHTML = "";
+
+  const title = document.createElement("div");
+  title.style.letterSpacing = "0.14em";
+  title.style.textTransform = "uppercase";
+  title.style.marginBottom = "0.6rem";
+  title.style.color = "#ddd";
+  title.textContent = "Select 8 players for this game (roster will be locked)";
+  panel.appendChild(title);
+
+  const hint = document.createElement("div");
+  hint.style.color = "#aaa";
+  hint.style.fontSize = "0.85rem";
+  hint.style.marginBottom = "0.8rem";
+  hint.textContent = "You can have more players saved globally. Only 8 are used for this specific game.";
+  panel.appendChild(hint);
+
+  const list = document.createElement("div");
+  list.style.display = "grid";
+  list.style.gridTemplateColumns = "repeat(auto-fit, minmax(240px, 1fr))";
+  list.style.gap = "0.5rem";
+  panel.appendChild(list);
+
+  const selected = new Set();
+
+  function updateCountLabel() {
+    count.textContent = `${selected.size} / 8 selected`;
+    lockBtn.disabled = selected.size !== 8;
+  }
+
+  gAllPlayers.forEach(p => {
+    const row = document.createElement("label");
+    row.style.display = "flex";
+    row.style.alignItems = "center";
+    row.style.gap = "0.5rem";
+    row.style.padding = "0.5rem 0.65rem";
+    row.style.border = "1px solid rgba(255,255,255,0.10)";
+    row.style.borderRadius = "12px";
+    row.style.background = "rgba(0,0,0,0.28)";
+    row.style.cursor = "pointer";
+
+    const cb = document.createElement("input");
+    cb.type = "checkbox";
+
+    cb.addEventListener("change", () => {
+      if (cb.checked) {
+        if (selected.size >= 8) {
+          cb.checked = false;
+          alert("You must select exactly 8 players.");
+          return;
+        }
+        selected.add(p.id);
+      } else {
+        selected.delete(p.id);
+      }
+      updateCountLabel();
+    });
+
+    const name = document.createElement("div");
+    name.textContent = p.name || `Player ${p.id}`;
+    name.style.fontWeight = "500";
+
+    row.appendChild(cb);
+    row.appendChild(name);
+    list.appendChild(row);
+  });
+
+  const actions = document.createElement("div");
+  actions.style.display = "flex";
+  actions.style.gap = "0.75rem";
+  actions.style.alignItems = "center";
+  actions.style.marginTop = "0.9rem";
+  panel.appendChild(actions);
+
+  const count = document.createElement("div");
+  count.style.color = "#bbb";
+  count.style.fontSize = "0.85rem";
+  actions.appendChild(count);
+
+  const lockBtn = document.createElement("button");
+  lockBtn.textContent = "Lock roster & start matrix";
+  lockBtn.disabled = true;
+  lockBtn.addEventListener("click", async () => {
+    const ids = Array.from(selected);
+    try {
+      const res = await fetch(`/api/games/${window.GAME_ID}/roster`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ player_ids: ids })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        alert(data.error || "Failed to lock roster.");
+        return;
+      }
+      // reload matrix now that roster is locked
+      await loadMatrixData();
+    } catch (e) {
+      console.error(e);
+      alert("Network error while locking roster.");
+    }
+  });
+  actions.appendChild(lockBtn);
+
+  updateCountLabel();
+}
+
+
 async function loadMatrixData() {
   setStatus("Loading matrix...");
   document.getElementById("save-matrix-btn").disabled = true;
@@ -182,21 +299,49 @@ async function loadMatrixData() {
     setStatus("Error loading matrix.", "error");
     throw new Error("Failed to load matrix");
   }
+
   const data = await res.json();
   const game = data.game;
-  gPlayers = data.players || [];
-  gArmies = game.armies || [];
-  gMatrix = data.matrix || {};
+
+  gRosterLocked = !!data.roster_locked;
+  gAllPlayers = data.all_players || [];
 
   document.getElementById("opponent-name-label").textContent =
     `Opponent: ${game.opponent_name || "Unknown"}`;
   document.getElementById("army-count-label").textContent =
-    `${gArmies.length} codex`;
+    `${(game.armies || []).length} codex`;
+
+  // If roster not locked -> show picker, hide matrix
+  if (!gRosterLocked) {
+    gPlayers = [];
+    gArmies = game.armies || [];
+    gMatrix = {};
+
+    // Hide/clear matrix table
+    const table = document.getElementById("matrix-table");
+    if (table) table.innerHTML = "";
+
+    setStatus("Roster not locked for this game. Select 8 players first.", "unsaved");
+    renderRosterPicker();
+    return;
+  }
+
+  // Roster locked -> normal matrix load
+  const rosterPanel = document.getElementById("roster-panel");
+  if (rosterPanel) {
+    rosterPanel.style.display = "none";
+    rosterPanel.innerHTML = "";
+  }
+
+  gPlayers = data.players || [];
+  gArmies = game.armies || [];
+  gMatrix = data.matrix || {};
 
   buildMatrixTable();
   gDirty = false;
   setStatus("Matrix loaded. Click cells to cycle through states.");
 }
+
 
 async function saveMatrix() {
   if (!gDirty) return;
