@@ -818,6 +818,90 @@ def api_report():
     })
 
 
+@app.route("/players/<int:player_id>")
+@login_required
+def player_detail_page(player_id):
+    return render_template("player_detail.html", player_id=player_id)
+
+@app.route("/api/players/<int:player_id>", methods=["GET"])
+@login_required
+def api_get_player(player_id):
+    players = load_players()
+    p = next((x for x in players if x.get("id") == player_id), None)
+    if not p:
+        return jsonify({"error": "Player not found"}), 404
+    # ensure fields exist
+    p.setdefault("lists", [])
+    p.setdefault("default_index", None)
+    p.setdefault("active", False)
+    p.setdefault("match_history", [])
+    return jsonify(p)
+
+
+@app.route("/api/players/<int:player_id>/matches", methods=["POST"])
+@login_required
+def api_add_player_match(player_id):
+    payload = request.get_json(silent=True) or {}
+
+    faction = (payload.get("faction") or "").strip()
+    result = (payload.get("result") or "").strip().upper()  # WIN/DRAW/LOSS
+    opponent_level = payload.get("opponent_level")
+    comment = (payload.get("comment") or "").strip()
+
+    if not faction:
+        return jsonify({"error": "Faction is required"}), 400
+    if result not in {"WIN", "DRAW", "LOSS"}:
+        return jsonify({"error": "Result must be WIN, DRAW or LOSS"}), 400
+    if opponent_level is None:
+        return jsonify({"error": "Opponent level is required"}), 400
+    try:
+        opponent_level = int(opponent_level)
+    except Exception:
+        return jsonify({"error": "Opponent level must be an integer"}), 400
+    if opponent_level < 1 or opponent_level > 5:
+        return jsonify({"error": "Opponent level must be 1..5"}), 400
+
+    players = load_players()
+    p = next((x for x in players if x.get("id") == player_id), None)
+    if not p:
+        return jsonify({"error": "Player not found"}), 404
+
+    p.setdefault("match_history", [])
+    existing_ids = [m.get("id") for m in p["match_history"] if isinstance(m, dict) and "id" in m]
+    next_id = (max(existing_ids) + 1) if existing_ids else 1
+
+    entry = {
+        "id": next_id,
+        "date": datetime.now().isoformat(timespec="seconds"),
+        "faction": faction,
+        "result": result,
+        "opponent_level": opponent_level,
+        "comment": comment
+    }
+    p["match_history"].append(entry)
+    save_players(players)
+
+    return jsonify({"status": "ok", "match": entry}), 201
+
+
+@app.route("/api/players/<int:player_id>/matches/<int:match_id>", methods=["DELETE"])
+@login_required
+def api_delete_player_match(player_id, match_id):
+    players = load_players()
+    p = next((x for x in players if x.get("id") == player_id), None)
+    if not p:
+        return jsonify({"error": "Player not found"}), 404
+
+    hist = p.get("match_history") or []
+    new_hist = [m for m in hist if m.get("id") != match_id]
+    if len(new_hist) == len(hist):
+        return jsonify({"error": "Match not found"}), 404
+
+    p["match_history"] = new_hist
+    save_players(players)
+    return jsonify({"status": "ok"})
+
+
 
 if __name__ == "__main__":
     app.run(debug=True)
