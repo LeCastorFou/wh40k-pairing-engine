@@ -597,7 +597,13 @@ def api_optimize_pairing(game_id):
         return jsonify({"error": "Game not found"}), 404
 
     # Only active players (same logic as your matrix API)
-    players = [p for p in load_players() if p.get("active") is True]
+    all_players = load_players()
+    roster_ids = game.get("player_ids") or []
+
+    by_id = {p.get("id"): p for p in all_players if isinstance(p, dict)}
+    players = [by_id.get(pid) for pid in roster_ids]
+    players = [p for p in players if p is not None]
+
     armies = game.get("armies", [])
     matrix = game.get("matrix", {})  # key "playerId-armyIndex" -> state
 
