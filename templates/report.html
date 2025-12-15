@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>After Action Report</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700&family=Roboto:wght@300;400;500&display=swap');
+    body{
+      margin:0; padding:2rem;
+      font-family:'Roboto',sans-serif;
+      background: radial-gradient(circle at top, #333 0, #050509 50%, #000 100%);
+      color:#f5f5f5;
+    }
+    .wrap{max-width:1100px;margin:0 auto;}
+    h1{font-family:'Cinzel',serif;letter-spacing:.12em;text-transform:uppercase;margin:0 0 .25rem;}
+    .sub{color:#bbb;margin:0 0 1.25rem;font-size:.9rem;}
+    .panel{
+      background: linear-gradient(145deg, rgba(10,10,15,0.96), rgba(5,5,8,0.98));
+      border:1px solid rgba(255,255,255,0.06);
+      border-radius:14px;
+      padding:1.25rem 1.5rem;
+      box-shadow:0 0 28px rgba(0,0,0,0.85);
+    }
+    table{width:100%;border-collapse:collapse;margin-top:.75rem;}
+    th,td{padding:.65rem .6rem;border-bottom:1px solid rgba(255,255,255,0.08);font-size:.9rem;}
+    th{
+      text-align:left;
+      text-transform:uppercase;
+      letter-spacing:.12em;
+      font-size:.75rem;
+      color:#ddd;
+      cursor:pointer;
+      user-select:none;
+    }
+    th .arrow{opacity:.7;margin-left:.35rem;font-size:.8rem;}
+    td.num{text-align:right; font-variant-numeric: tabular-nums;}
+    .pill{
+      display:inline-block;padding:.15rem .6rem;border-radius:999px;
+      border:1px solid rgba(255,255,255,0.12);
+      background:rgba(0,0,0,0.35);
+      font-size:.75rem;color:#bbb;
+    }
+    .delta-pos{color:#66bb6a;}
+    .delta-neg{color:#ff8a80;}
+    .row-btn{
+      background:transparent;border:1px solid rgba(255,255,255,0.14);
+      color:#ddd;border-radius:999px;padding:.25rem .7rem;
+      cursor:pointer;font-size:.72rem;letter-spacing:.12em;text-transform:uppercase;
+    }
+    .details{
+      margin-top:1rem;
+      display:none;
+      border-top:1px solid rgba(255,255,255,0.08);
+      padding-top:1rem;
+    }
+    .details h3{margin:.2rem 0 .5rem; font-size:.95rem; letter-spacing:.12em; text-transform:uppercase;}
+    .details-item{
+      padding:.5rem .5rem;border:1px solid rgba(255,255,255,0.08);
+      border-radius:12px;background:rgba(0,0,0,0.28);margin-bottom:.5rem;
+      display:flex; justify-content:space-between; gap:1rem; flex-wrap:wrap;
+      font-size:.88rem;
+    }
+    .muted{color:#aaa;}
+    a{color:#e57373;text-decoration:none;}
+    a:hover{text-decoration:underline;}
+  </style>
+</head>
+<body>
+<div class="wrap">
+  <div style="display:flex;justify-content:space-between;align-items:center;gap:1rem;flex-wrap:wrap;">
+    <div>
+      <h1>After Action Report</h1>
+      <p class="sub">Across all saved games — score discipline, performance, consistency.</p>
+    </div>
+    <a href="{{ url_for('index') }}">← Back to Command Centre</a>
+  </div>
+
+  <div class="panel">
+    <div id="report-meta" class="pill">Loading…</div>
+
+    <table id="report-table">
+      <thead>
+        <tr>
+          <th data-key="name">Name <span class="arrow"></span></th>
+          <th data-key="games_played" class="num">Games <span class="arrow"></span></th>
+          <th data-key="avg_score" class="num">Average score <span class="arrow"></span></th>
+          <th data-key="avg_delta" class="num">Average delta <span class="arrow"></span></th>
+          <th>Details</th>
+        </tr>
+      </thead>
+      <tbody></tbody>
+    </table>
+
+    <div id="details" class="details"></div>
+  </div>
+</div>
+
+<script src="{{ url_for('static', filename='js/report.js') }}"></script>
+</body>
+</html>

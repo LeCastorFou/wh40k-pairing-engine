@@ -237,7 +237,7 @@
   <div class="frame">
     <div class="frame-inner">
       <div class="subtitle">In the grim darkness of the far future...</div>
-      <h1>Warhammer 40,000 Pairing Engine</h1>
+      <h1>Warhammer 40,000 Team Pairing Engine</h1>
 
       <!-- NEW: team name from env -->
       <div class="teamline">Bunker access: <strong>{{ team_name }}</strong></div>
@@ -249,18 +249,18 @@
 
       <hr class="divider" />
 
-      <p class="meta">
-        Version 0.1 – Local dev build · Flask · JavaScript · JSON persistence
-      </p>
-
       <div class="locked-wrap">
         <div class="actions" id="actions">
           <a href="{{ url_for('players_page') }}" class="btn">Manage Players &amp; Lists</a>
           <a href="{{ url_for('new_game_page') }}" class="btn btn-secondary">Create Game vs Opponent</a>
           <a href="{{ url_for('games_list_page') }}" class="btn btn-secondary">View Saved Games</a>
           <span class="btn btn-secondary" style="pointer-events:none; opacity:0.6;">More Coming Soon</span>
-
-          <!-- NEW: logout appears only when logged in -->
+          <a href="{{ url_for('report_page') }}"
+            class="btn btn-secondary"
+            style="border-color:#66bb6a; color:#e0ffe0;">
+            Players Action Report
+          </a>
+          <!-- NEW: logout appe ars only when logged in -->
           {% if logged_in %}
             <button class="btn btn-secondary" id="logout-btn">Logout</button>
           {% endif %}

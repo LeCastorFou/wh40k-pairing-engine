@@ -700,6 +700,122 @@ def api_set_game_roster(game_id):
 
     return jsonify({"status": "ok", "player_ids": player_ids})
 
+@app.route("/report")
+@login_required
+def report_page():
+    return render_template("report.html")
+
+
+@app.route("/api/report", methods=["GET"])
+@login_required
+def api_report():
+    games = load_games()
+    players = load_players()
+    by_id = {p.get("id"): p for p in players if isinstance(p, dict)}
+
+    # Expected score mapping (same as your JS)
+    STATE_TO_EXPECTED = {
+        "HELP": 3.0,
+        "LOOSE": 6.5,
+        "S_LOOSE": 9.0,
+        "S_WIN": 11.0,
+        "WIN": 13.5,
+        "EASY": 16.0,
+        "UNKNOWN": 10.0,
+        "GAMBLE": 10.0,
+    }
+
+    # Aggregate per player
+    stats = {}  # pid -> dict
+
+    def ensure(pid):
+        if pid not in stats:
+            p = by_id.get(pid, {})
+            stats[pid] = {
+                "player_id": pid,
+                "name": p.get("name") or f"Player {pid}",
+                "games_played": 0,
+                "sum_real": 0.0,
+                "sum_delta": 0.0,
+                "delta_count": 0,
+                "details": []  # per game detail (optional but nice)
+            }
+        return stats[pid]
+
+    # Iterate all games, all pairings with real_score
+    for g in games:
+        gid = g.get("id")
+        opp = g.get("opponent_name") or "Unknown"
+        scenario = g.get("scenario")
+        matrix = g.get("matrix") or {}
+        armies = g.get("armies") or []
+        pairings = g.get("pairings") or []
+
+        for pr in pairings:
+            pid = pr.get("player_id")
+            aidx = pr.get("army_index")
+            real = pr.get("real_score")
+
+            if not isinstance(pid, int):
+                continue
+            if not isinstance(real, (int, float)):
+                continue
+
+            row = ensure(pid)
+            row["games_played"] += 1
+            row["sum_real"] += float(real)
+
+            # expected from matrix state
+            expected = None
+            state = None
+            if isinstance(aidx, int):
+                state = matrix.get(f"{pid}-{aidx}")
+                expected = STATE_TO_EXPECTED.get(state) if state else None
+
+            if isinstance(expected, (int, float)):
+                d = float(real) - float(expected)
+                row["sum_delta"] += d
+                row["delta_count"] += 1
+            else:
+                d = None
+
+            faction = None
+            if isinstance(aidx, int) and 0 <= aidx < len(armies):
+                faction = armies[aidx].get("faction")
+
+            row["details"].append({
+                "game_id": gid,
+                "opponent": opp,
+                "game_no": pr.get("game_no"),
+                "faction": faction,
+                "scenario": scenario,
+                "real_score": real,
+                "state": state,
+                "expected": expected,
+                "delta": d,
+            })
+
+    # Build final rows
+    rows = []
+    for pid, r in stats.items():
+        avg_real = (r["sum_real"] / r["games_played"]) if r["games_played"] else None
+        avg_delta = (r["sum_delta"] / r["delta_count"]) if r["delta_count"] else None
+        rows.append({
+            "player_id": pid,
+            "name": r["name"],
+            "games_played": r["games_played"],
+            "avg_score": avg_real,
+            "avg_delta": avg_delta,
+            "details": r["details"],
+        })
+
+    # Sort default: best avg_score
+    rows.sort(key=lambda x: (x["avg_score"] is None, -(x["avg_score"] or 0), x["name"].lower()))
+
+    return jsonify({
+        "players": rows,
+        "games_count": len(games)
+    })
 
 
 
