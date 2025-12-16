@@ -30,6 +30,49 @@ let gRosterLocked = false;
 let gAllPlayers = [];
 
 
+/* =========================
+   Small helpers (supports both roster-snapshot & legacy players)
+   ========================= */
+
+function getPlayerId(player) {
+  // roster snapshot
+  if (typeof player?.player_id === "number") return player.player_id;
+  // legacy
+  if (typeof player?.id === "number") return player.id;
+  return null;
+}
+
+function getPlayerName(player) {
+  return player?.player_name || player?.name || "Player";
+}
+
+function getPlayerDefaultListLabel(player) {
+  // roster snapshot: list_text is already the default list (frozen)
+  if (typeof player?.list_text === "string" && player.list_text.trim()) {
+    const firstLine = player.list_text.split(/\r?\n/).find(l => l.trim().length > 0) || "Default list";
+    const trimmed = firstLine.trim();
+    return trimmed.length > 40 ? trimmed.slice(0, 37) + "..." : trimmed;
+  }
+
+  // legacy fallback (shouldn't be used once roster snapshot is in place, but safe)
+  let defaultLabel = "";
+  if (Array.isArray(player?.lists) && typeof player?.default_index === "number") {
+    const idx = player.default_index;
+    if (idx >= 0 && idx < player.lists.length) {
+      const txt = player.lists[idx] || "";
+      const firstLine = txt.split(/\r?\n/).find(l => l.trim().length > 0) || "Default list";
+      defaultLabel = firstLine.trim();
+      if (defaultLabel.length > 40) defaultLabel = defaultLabel.slice(0, 37) + "...";
+    }
+  }
+  return defaultLabel || "No default list";
+}
+
+
+/* =========================
+   UI helpers
+   ========================= */
+
 function setStatus(text, mode = "normal") {
   const el = document.getElementById("matrix-status");
   el.textContent = text;
@@ -59,6 +102,11 @@ function nextState(current) {
   const nextIdx = (idx + 1) % STATE_ORDER.length;
   return STATE_ORDER[nextIdx];
 }
+
+
+/* =========================
+   Matrix rendering
+   ========================= */
 
 function buildMatrixTable() {
   const table = document.getElementById("matrix-table");
@@ -99,7 +147,10 @@ function buildMatrixTable() {
 
   const tbody = document.createElement("tbody");
 
- gPlayers.forEach(player => {
+  gPlayers.forEach(player => {
+    const pid = getPlayerId(player);
+    if (typeof pid !== "number") return; // safety
+
     const tr = document.createElement("tr");
 
     const nameTd = document.createElement("td");
@@ -108,46 +159,28 @@ function buildMatrixTable() {
     const wrapper = document.createElement("div");
 
     const nameSpan = document.createElement("div");
-    nameSpan.textContent = player.name || `Player ${player.id}`;
+    nameSpan.textContent = getPlayerName(player) || `Player ${pid}`;
     nameSpan.style.fontWeight = "500";
 
     const subSpan = document.createElement("div");
     subSpan.style.fontSize = "0.7rem";
     subSpan.style.color = "#aaa";
-
-    let defaultLabel = "";
-    if (Array.isArray(player.lists) && typeof player.default_index === "number") {
-        const idx = player.default_index;
-        if (idx >= 0 && idx < player.lists.length) {
-        const txt = player.lists[idx] || "";
-        const firstLine = txt.split(/\r?\n/).find(l => l.trim().length > 0) || "Default list";
-        defaultLabel = firstLine.trim();
-        if (defaultLabel.length > 40) {
-            defaultLabel = defaultLabel.slice(0, 37) + "...";
-        }
-        }
-    }
-    if (!defaultLabel) {
-        defaultLabel = "No default list";
-    }
-    subSpan.textContent = defaultLabel;
+    subSpan.textContent = getPlayerDefaultListLabel(player);
 
     wrapper.appendChild(nameSpan);
     wrapper.appendChild(subSpan);
     nameTd.appendChild(wrapper);
-
     tr.appendChild(nameTd);
-
 
     gArmies.forEach((army, armyIdx) => {
       const td = document.createElement("td");
 
       const btn = document.createElement("button");
       btn.className = "matrix-cell-btn";
-      btn.dataset.playerId = player.id;
+      btn.dataset.playerId = pid;
       btn.dataset.armyIndex = armyIdx;
 
-      const key = `${player.id}-${armyIdx}`;
+      const key = `${pid}-${armyIdx}`;
       const stateKey = gMatrix[key] || "NONE";
       btn.dataset.stateKey = stateKey;
       applyStateToButton(btn, stateKey);
@@ -156,12 +189,11 @@ function buildMatrixTable() {
         let current = btn.dataset.stateKey || "NONE";
         const next = nextState(current);
         btn.dataset.stateKey = next;
-        const mapKey = `${player.id}-${armyIdx}`;
-        if (next === "NONE") {
-          delete gMatrix[mapKey];
-        } else {
-          gMatrix[mapKey] = next;
-        }
+
+        const mapKey = `${pid}-${armyIdx}`;
+        if (next === "NONE") delete gMatrix[mapKey];
+        else gMatrix[mapKey] = next;
+
         applyStateToButton(btn, next);
         markDirty();
       });
@@ -176,6 +208,10 @@ function buildMatrixTable() {
   table.appendChild(tbody);
 }
 
+
+/* =========================
+   Roster picker
+   ========================= */
 
 function renderRosterPicker() {
   const panel = document.getElementById("roster-panel");
@@ -266,6 +302,7 @@ function renderRosterPicker() {
   lockBtn.disabled = true;
   lockBtn.addEventListener("click", async () => {
     const ids = Array.from(selected);
+
     try {
       const res = await fetch(`/api/games/${window.GAME_ID}/roster`, {
         method: "POST",
@@ -273,10 +310,12 @@ function renderRosterPicker() {
         body: JSON.stringify({ player_ids: ids })
       });
       const data = await res.json();
+
       if (!res.ok) {
         alert(data.error || "Failed to lock roster.");
         return;
       }
+
       // reload matrix now that roster is locked
       await loadMatrixData();
     } catch (e) {
@@ -289,6 +328,10 @@ function renderRosterPicker() {
   updateCountLabel();
 }
 
+
+/* =========================
+   Data load / save
+   ========================= */
 
 async function loadMatrixData() {
   setStatus("Loading matrix...");
@@ -317,7 +360,6 @@ async function loadMatrixData() {
     gArmies = game.armies || [];
     gMatrix = {};
 
-    // Hide/clear matrix table
     const table = document.getElementById("matrix-table");
     if (table) table.innerHTML = "";
 
@@ -333,7 +375,7 @@ async function loadMatrixData() {
     rosterPanel.innerHTML = "";
   }
 
-  gPlayers = data.players || [];
+  gPlayers = data.players || [];     // now roster snapshot objects
   gArmies = game.armies || [];
   gMatrix = data.matrix || {};
 
@@ -342,9 +384,9 @@ async function loadMatrixData() {
   setStatus("Matrix loaded. Click cells to cycle through states.");
 }
 
-
 async function saveMatrix() {
   if (!gDirty) return;
+
   const btn = document.getElementById("save-matrix-btn");
   btn.disabled = true;
   setStatus("Saving...");
@@ -383,6 +425,11 @@ async function saveMatrix() {
   }
 }
 
+
+/* =========================
+   Init
+   ========================= */
+
 document.addEventListener("DOMContentLoaded", async () => {
   const saveBtn = document.getElementById("save-matrix-btn");
   saveBtn.addEventListener("click", saveMatrix);
@@ -394,6 +441,10 @@ document.addEventListener("DOMContentLoaded", async () => {
   }
 });
 
+
+/* =========================
+   Optimize
+   ========================= */
 
 async function optimizePairing() {
   const box = document.getElementById("optimize-results");

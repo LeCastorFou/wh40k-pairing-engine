@@ -69,6 +69,38 @@ let gScenario = null;
    Utilities
    ========================= */
 
+function getPlayerId(player) {
+  if (typeof player?.player_id === "number") return player.player_id; // roster snapshot
+  if (typeof player?.id === "number") return player.id;              // legacy/global
+  return null;
+}
+
+function getPlayerName(player) {
+  return player?.player_name || player?.name || "Player";
+}
+
+function getPlayerListLabel(player) {
+  // roster snapshot: frozen list_text
+  if (typeof player?.list_text === "string" && player.list_text.trim()) {
+    const firstLine = player.list_text.split(/\r?\n/).find(l => l.trim().length > 0) || "Default list";
+    const trimmed = firstLine.trim();
+    return trimmed.length > 40 ? trimmed.slice(0, 37) + "..." : trimmed;
+  }
+
+  // legacy/global fallback
+  let defaultLabel = "";
+  if (Array.isArray(player?.lists) && typeof player?.default_index === "number") {
+    const idx = player.default_index;
+    if (idx >= 0 && idx < player.lists.length) {
+      const txt = player.lists[idx] || "";
+      const firstLine = txt.split(/\r?\n/).find(l => l.trim().length > 0) || "Default list";
+      defaultLabel = firstLine.trim();
+      if (defaultLabel.length > 40) defaultLabel = defaultLabel.slice(0, 37) + "...";
+    }
+  }
+  return defaultLabel || "No default list";
+}
+
 function setFightStatus(text, mode = "normal") {
   const el = document.getElementById("fight-status");
   if (!el) return;
@@ -295,9 +327,12 @@ function buildMatrixTable() {
 
     const wrapper = document.createElement("div");
     const nameLine = document.createElement("div");
-    nameLine.textContent = player.name || `Player ${player.id}`;
+
+    const pid = getPlayerId(player);
+    nameLine.textContent = getPlayerName(player) || `Player ${pid}`;
     const listLine = document.createElement("div");
-    listLine.textContent = getDefaultListLabel(player);
+    listLine.textContent = getPlayerListLabel(player);
+
 
     wrapper.appendChild(nameLine);
     wrapper.appendChild(listLine);
@@ -307,18 +342,19 @@ function buildMatrixTable() {
     gArmies.forEach((army, armyIdx) => {
       const td = document.createElement("td");
       td.className = "matrix-cell";
-      td.dataset.playerId = player.id;
+      const pid = getPlayerId(player);
+      td.dataset.playerId = pid;
       td.dataset.armyIndex = armyIdx;
 
       // Used logic
-      const usedRow = usedRows.has(player.id);
+      const usedRow = usedRows.has(pid);
       const usedCol = usedCols.has(armyIdx);
       if (usedRow || usedCol) td.classList.add("used");
 
       const inner = document.createElement("div");
       inner.className = "matrix-cell-inner";
 
-      const key = `${player.id}-${armyIdx}`;
+      const key = `${pid}-${armyIdx}`;
       const stateKey = gMatrixStates[key] || "NONE";
       applyStateVisual(inner, stateKey);
 
@@ -339,7 +375,7 @@ function buildMatrixTable() {
         }
 
         // Allow pairing first, layout later
-        assignPairingToSlot(gActiveSlot, player.id, armyIdx);
+        assignPairingToSlot(gActiveSlot, pid, armyIdx);
 
         // UX hint: remind user to pick a layout for this game
         const slotAfter = gPairings.find(s => s.game_no === gActiveSlot);
@@ -513,13 +549,14 @@ function refreshGameCards() {
       return;
     }
 
-    const player = gPlayers.find(p => p.id === slot.player_id);
+    const player = gPlayers.find(p => getPlayerId(p) === slot.player_id);
+    
     const army = gArmies[slot.army_index];
 
     const pSpan = document.createElement("span");
-    pSpan.textContent = (player?.name || `Player ${slot.player_id}`) + " ";
+    pSpan.textContent = (getPlayerName(player) || `Player ${slot.player_id}`) + " ";
 
-    const listLabel = getDefaultListLabel(player || {});
+    const listLabel = getPlayerListLabel(player || {});
     const listSpan = document.createElement("span");
     listSpan.textContent = `(${listLabel})`;
 
@@ -599,9 +636,9 @@ function refreshSummaryTable() {
     tr.appendChild(tdPhase);
 
     const tdPlayer = document.createElement("td");
-    const player = gPlayers.find(p => p.id === slot.player_id);
-    const name = player?.name || `Player ${slot.player_id}`;
-    const listLabel = getDefaultListLabel(player || {});
+    const player = gPlayers.find(p => getPlayerId(p) === slot.player_id);
+    const name = getPlayerName(player) || `Player ${slot.player_id}`;
+    const listLabel = getPlayerListLabel(player || {});
     tdPlayer.textContent = `${name} (${listLabel})`;
     tr.appendChild(tdPlayer);
 

@@ -31,6 +31,12 @@ DATA_DIR.mkdir(parents=True, exist_ok=True)
 PLAYERS_FILE = DATA_DIR / "players.json"
 GAMES_FILE = DATA_DIR / "games.json"
 
+ALLOWED_MATRIX_STATES = {
+    "GAMBLE", "UNKNOWN", "EASY", "WIN",
+    "S_WIN", "S_LOOSE", "LOOSE", "HELP"
+}
+
+
 STATE_TO_SCORE = {
     "HELP": 3.0,
     "LOOSE": 6.5,
@@ -42,6 +48,12 @@ STATE_TO_SCORE = {
     "GAMBLE": 10.0,
 }
 
+def default_list_text(player: dict):
+    lists = player.get("lists") or []
+    idx = player.get("default_index")
+    if isinstance(idx, int) and 0 <= idx < len(lists):
+        return lists[idx]
+    return None
 
 def login_required(view):
     @wraps(view)
@@ -63,12 +75,10 @@ def load_games():
     except json.JSONDecodeError:
         return []
 
-
 def save_games(games):
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     with GAMES_FILE.open("w") as f:
         json.dump(games, f, indent=2)
-
 
 def next_game_id(games):
     ids = [g.get("id") for g in games if isinstance(g, dict) and "id" in g]
@@ -109,12 +119,10 @@ def normalize_players(players):
                 active_count += 1
     return players
 
-
 def save_players(players):
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     with PLAYERS_FILE.open("w") as f:
         json.dump(players, f, indent=2)
-
 
 def next_player_id(players):
     """Compute next player id, even if some entries are odd."""
@@ -122,7 +130,6 @@ def next_player_id(players):
     if not ids:
         return 1
     return max(ids) + 1
-
 
 @app.route("/api/login", methods=["POST"])
 def api_login():
@@ -367,18 +374,8 @@ def api_get_game_matrix(game_id):
     if not game:
         return jsonify({"error": "Game not found"}), 404
 
-    all_players = load_players()
-    roster_ids = game.get("player_ids")
-
-    # If roster is set and valid: return ONLY these 8 players (in roster order)
-    if isinstance(roster_ids, list) and len(roster_ids) == 8 and all(isinstance(x, int) for x in roster_ids):
-        by_id = {p.get("id"): p for p in all_players if isinstance(p, dict)}
-        players = [by_id.get(pid) for pid in roster_ids]
-        players = [p for p in players if p is not None]  # drop missing
-        roster_locked = (len(players) == 8)
-    else:
-        players = []
-        roster_locked = False
+    roster = game.get("roster", [])
+    roster_locked = isinstance(roster, list) and len(roster) == 8
 
     matrix = game.get("matrix", {})
 
@@ -388,29 +385,32 @@ def api_get_game_matrix(game_id):
             "opponent_name": game.get("opponent_name"),
             "armies": game.get("armies", []),
             "created_at": game.get("created_at"),
-            "player_ids": roster_ids if isinstance(roster_ids, list) else []
         },
         "roster_locked": roster_locked,
-        "players": players,
-        "all_players": all_players if not roster_locked else [],
+        "players": roster if roster_locked else [],
+        "all_players": load_players() if not roster_locked else [],
         "matrix": matrix
     })
 
 
 
-ALLOWED_MATRIX_STATES = {
-    "GAMBLE", "UNKNOWN", "EASY", "WIN",
-    "S_WIN", "S_LOOSE", "LOOSE", "HELP"
-}
+
 
 @app.route("/api/games/<int:game_id>/matrix", methods=["POST"])
 @login_required
 def api_save_game_matrix(game_id):
+    
     games = load_games()
     game = next((g for g in games if g.get("id") == game_id), None)
     if not game:
         return jsonify({"error": "Game not found"}), 404
 
+    roster = game.get("roster", [])
+    roster_ids = {p.get("player_id") for p in roster if isinstance(p, dict)}
+
+    if len(roster_ids) != 8:
+        return jsonify({"error": "Roster not locked yet for this game"}), 400
+    
     payload = request.get_json(silent=True) or {}
     entries = payload.get("entries", [])
     if not isinstance(entries, list):
@@ -422,6 +422,9 @@ def api_save_game_matrix(game_id):
         player_id = entry.get("player_id")
         army_index = entry.get("army_index")
         value = entry.get("value")
+        
+        if player_id not in roster_ids:
+            return jsonify({"error": f"player_id {player_id} is not in this game's roster"}), 400
 
         if not isinstance(player_id, int) or not isinstance(army_index, int):
             return jsonify({"error": "player_id and army_index must be integers"}), 400
@@ -435,6 +438,7 @@ def api_save_game_matrix(game_id):
     save_games(games)
 
     return jsonify({"status": "ok", "matrix": new_matrix})
+
 
 
 @app.route("/games/<int:game_id>/fight")
@@ -575,19 +579,7 @@ def api_list_layouts():
 
     return jsonify(out)
 
-import itertools
-import math
 
-STATE_TO_SCORE = {
-    "HELP": 3.0,
-    "LOOSE": 6.5,
-    "S_LOOSE": 9.0,
-    "S_WIN": 11.0,
-    "WIN": 13.5,
-    "EASY": 16.0,
-    "UNKNOWN": 10.0,
-    "GAMBLE": 10.0,
-}
 
 @app.route("/api/games/<int:game_id>/optimize", methods=["GET"])
 def api_optimize_pairing(game_id):
@@ -675,8 +667,8 @@ def api_set_game_roster(game_id):
     if not game:
         return jsonify({"error": "Game not found"}), 404
 
-    # Don't allow changes once locked (roster locked at matrix creation)
-    if isinstance(game.get("player_ids"), list) and len(game["player_ids"]) == 8:
+    # Don’t allow changes once locked
+    if isinstance(game.get("roster"), list) and len(game["roster"]) == 8:
         return jsonify({"error": "Roster already locked for this game"}), 400
 
     payload = request.get_json(silent=True) or {}
@@ -688,17 +680,31 @@ def api_set_game_roster(game_id):
         return jsonify({"error": "Invalid player_ids"}), 400
 
     players = load_players()
-    existing_ids = {p.get("id") for p in players if isinstance(p, dict)}
-    if any(pid not in existing_ids for pid in player_ids):
-        return jsonify({"error": "One or more player ids do not exist"}), 400
+    by_id = {p.get("id"): p for p in players if isinstance(p, dict) and isinstance(p.get("id"), int)}
 
-    # Lock roster + reset game state
-    game["player_ids"] = player_ids
+    missing = [pid for pid in player_ids if pid not in by_id]
+    if missing:
+        return jsonify({"error": f"Unknown player ids: {missing}"}), 400
+
+    # ✅ SNAPSHOT roster (player + list)
+    roster = []
+    for pid in player_ids:
+        p = by_id[pid]
+        roster.append({
+            "player_id": pid,
+            "player_name": p.get("name") or f"Player {pid}",
+            "list_text": default_list_text(p) or "No default list"
+        })
+
+    # ✅ Lock roster + reset per-game state
+    game["roster"] = roster
+    game["player_ids"] = player_ids  # optional (keep for compatibility)
     game["matrix"] = {}
     game["pairings"] = []
     save_games(games)
 
-    return jsonify({"status": "ok", "player_ids": player_ids})
+    return jsonify({"status": "ok", "roster": roster})
+
 
 @app.route("/report")
 @login_required
