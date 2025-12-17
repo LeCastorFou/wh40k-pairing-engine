@@ -189,9 +189,28 @@ function renderPlayers(players) {
         const listDiv = document.createElement("div");
         listDiv.className = "list-item";
 
+        const wrap = document.createElement("div");
+        wrap.className = "pre-expand";
+
         const pre = document.createElement("pre");
         pre.textContent = text;
-        listDiv.appendChild(pre);
+
+        wrap.appendChild(pre);
+
+        // only add toggle if it’s long-ish
+        if ((text || "").length > 100) {
+          const toggle = document.createElement("div");
+          toggle.className = "pre-toggle";
+          toggle.textContent = "Show more";
+          toggle.addEventListener("click", () => {
+            const expanded = wrap.classList.toggle("expanded");
+            toggle.textContent = expanded ? "Show less" : "Show more";
+          });
+          wrap.appendChild(toggle);
+        }
+
+        listDiv.appendChild(wrap);
+
 
         const meta = document.createElement("div");
         meta.className = "list-meta";

@@ -252,6 +252,42 @@
       color: #888;
       font-style: italic;
     }
+    /* Expand/collapse long pre blocks */
+.pre-expand {
+  position: relative;
+}
+
+.pre-expand pre {
+  margin: 0;
+  white-space: pre-wrap;
+  word-break: break-word;
+  font-family: monospace;
+  font-size: 0.8rem;
+  color: #e0e0e0;
+
+  /* default collapsed */
+  max-height: 3.8em;          /* ~3 lines (close to ~100 chars visually) */
+  overflow: hidden;
+}
+
+.pre-expand.expanded pre {
+  max-height: none;
+}
+
+.pre-toggle {
+  margin-top: 0.35rem;
+  font-size: 0.7rem;
+  color: #e57373;
+  cursor: pointer;
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  user-select: none;
+}
+
+.pre-toggle:hover {
+  text-decoration: underline;
+}
+
   </style>
 </head>
 <body>
