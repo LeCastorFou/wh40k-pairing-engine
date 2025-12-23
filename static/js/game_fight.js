@@ -365,12 +365,15 @@ function buildMatrixTable() {
         if (td.classList.contains("used")) return;
 
         const slot = gPairings.find(s => s.game_no === gActiveSlot);
+
         if (!gScenario) {
           alert("Select a Scenario first (Layouts section).");
           return;
         }
-        if (!gScenario) {
-          alert("Select a Scenario first (Layouts section).");
+
+        const pid = getPlayerId(player);
+        if (typeof pid !== "number") {
+          alert("Invalid player id (roster snapshot mismatch).");
           return;
         }
 
@@ -380,12 +383,13 @@ function buildMatrixTable() {
         // UX hint: remind user to pick a layout for this game
         const slotAfter = gPairings.find(s => s.game_no === gActiveSlot);
         if (slotAfter && !slotAfter.layout_n) {
-          setFightStatus(`Pairing set for Game ${gActiveSlot}. Now choose a Layout # for this game.`, "unsaved");
+          setFightStatus(
+            `Pairing set for Game ${gActiveSlot}. Now choose a Layout # for this game.`,
+            "unsaved"
+          );
         }
-
-
-        assignPairingToSlot(gActiveSlot, player.id, armyIdx);
       });
+
 
       tr.appendChild(td);
     });
