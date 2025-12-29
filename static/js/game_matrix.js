@@ -493,7 +493,49 @@ async function optimizePairing() {
   box.innerHTML = html;
 }
 
+
+
+
 document.addEventListener("DOMContentLoaded", () => {
   const btn = document.getElementById("optimize-btn");
   if (btn) btn.addEventListener("click", optimizePairing);
+
+  document.addEventListener("DOMContentLoaded", async () => {
+  const saveBtn = document.getElementById("save-matrix-btn");
+  saveBtn.addEventListener("click", saveMatrix);
+
+  const dlBtn = document.getElementById("download-lists-btn");
+  if (dlBtn) {
+    dlBtn.addEventListener("click", () => {
+      // Simple: trigger the download
+      window.location.href = `/api/games/${window.GAME_ID}/lists_pdf`;
+    });
+  }
+
+  try {
+    await loadMatrixData();
+  } catch (err) {
+    console.error(err);
+  }
+});
+
+document.addEventListener("DOMContentLoaded", async () => {
+  const saveBtn = document.getElementById("save-matrix-btn");
+  saveBtn.addEventListener("click", saveMatrix);
+
+  const dlBtn = document.getElementById("download-lists-btn");
+  if (dlBtn) {
+    dlBtn.addEventListener("click", () => {
+      // Simple: trigger the download
+      window.location.href = `/api/games/${window.GAME_ID}/lists_pdf`;
+    });
+  }
+
+  try {
+    await loadMatrixData();
+  } catch (err) {
+    console.error(err);
+  }
+});
+
 });

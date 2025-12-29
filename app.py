@@ -1,4 +1,4 @@
-from flask import Flask, render_template, request, jsonify, send_from_directory
+from flask import Flask, render_template, request, jsonify, send_from_directory,send_file
 from flask import session, redirect, url_for
 from functools import wraps
 from pathlib import Path
@@ -8,6 +8,10 @@ import os
 import re
 import itertools
 import math
+from io import BytesIO
+from reportlab.lib.pagesizes import A4
+from reportlab.pdfgen import canvas
+
 
 app = Flask(__name__)
 
@@ -907,6 +911,111 @@ def api_delete_player_match(player_id, match_id):
     save_players(players)
     return jsonify({"status": "ok"})
 
+@app.route("/api/games/<int:game_id>/lists_pdf", methods=["GET"])
+@login_required
+def api_game_lists_pdf(game_id):
+    games = load_games()
+    game = next((g for g in games if g.get("id") == game_id), None)
+    if not game:
+        return jsonify({"error": "Game not found"}), 404
+
+    all_players = load_players()
+    roster_ids = game.get("player_ids") or []
+
+    # Map id -> player (global)
+    by_id = {p.get("id"): p for p in all_players if isinstance(p, dict)}
+
+    # Current roster players
+    roster_players = [by_id.get(pid) for pid in roster_ids if by_id.get(pid)]
+
+    if not roster_players:
+        return jsonify({"error": "No roster defined for this game"}), 400
+
+    # Helper to get default list text (full text, not truncated)
+    def get_default_list_text(player):
+        # If at some point you store a frozen snapshot, prefer that:
+        snap_text = player.get("list_text")
+        if isinstance(snap_text, str) and snap_text.strip():
+            return snap_text.strip()
+
+        lists = player.get("lists") or []
+        idx = player.get("default_index")
+        if isinstance(idx, int) and 0 <= idx < len(lists):
+            return (lists[idx] or "").strip()
+
+        # Fallback: first list if exists
+        if lists:
+            return (lists[0] or "").strip()
+
+        return "(No list text)"
+
+    buffer = BytesIO()
+    c = canvas.Canvas(buffer, pagesize=A4)
+    width, height = A4
+
+    y = height - 40  # start position
+    left_margin = 40
+    line_height = 12
+
+    # Title
+    c.setFont("Helvetica-Bold", 14)
+    c.drawString(left_margin, y, f"Game #{game.get('id')} – {game.get('opponent_name') or 'Opponent'}")
+    y -= 24
+
+    for p in roster_players:
+        name = p.get("name") or f"Player {p.get('id')}"
+        list_text = get_default_list_text(p)
+
+        # Page break if needed
+        if y < 80:
+            c.showPage()
+            y = height - 40
+            c.setFont("Helvetica-Bold", 14)
+            c.drawString(left_margin, y, f"Game #{game.get('id')} – {game.get('opponent_name') or 'Opponent'}")
+            y -= 24
+
+        # Player header
+        c.setFont("Helvetica-Bold", 12)
+        c.drawString(left_margin, y, name)
+        y -= 16
+
+        # List text (monospace style)
+        c.setFont("Courier", 9)
+
+        # Simple word-wrap
+        max_chars = 95  # rough width
+        for raw_line in list_text.splitlines() or [""]:
+            line = raw_line if raw_line.strip() != "" else " "
+            while len(line) > max_chars:
+                segment = line[:max_chars]
+                c.drawString(left_margin, y, segment)
+                y -= line_height
+                line = line[max_chars:]
+                if y < 40:
+                    c.showPage()
+                    y = height - 40
+                    c.setFont("Courier", 9)
+            c.drawString(left_margin, y, line)
+            y -= line_height
+            if y < 40:
+                c.showPage()
+                y = height - 40
+                c.setFont("Courier", 9)
+
+        # Spacer between players
+        y -= 10
+
+    c.showPage()
+    c.save()
+    buffer.seek(0)
+
+    filename = f"game_{game_id}_lists.pdf"
+    return send_file(
+        buffer,
+        as_attachment=True,
+        download_name=filename,
+        mimetype="application/pdf"
+    )
 
 
 if __name__ == "__main__":
