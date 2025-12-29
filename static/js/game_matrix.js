@@ -496,46 +496,34 @@ async function optimizePairing() {
 
 
 
-document.addEventListener("DOMContentLoaded", () => {
-  const btn = document.getElementById("optimize-btn");
-  if (btn) btn.addEventListener("click", optimizePairing);
-
-  document.addEventListener("DOMContentLoaded", async () => {
-  const saveBtn = document.getElementById("save-matrix-btn");
-  saveBtn.addEventListener("click", saveMatrix);
-
-  const dlBtn = document.getElementById("download-lists-btn");
-  if (dlBtn) {
-    dlBtn.addEventListener("click", () => {
-      // Simple: trigger the download
-      window.location.href = `/api/games/${window.GAME_ID}/lists_pdf`;
-    });
-  }
-
-  try {
-    await loadMatrixData();
-  } catch (err) {
-    console.error(err);
-  }
-});
-
 document.addEventListener("DOMContentLoaded", async () => {
-  const saveBtn = document.getElementById("save-matrix-btn");
-  saveBtn.addEventListener("click", saveMatrix);
 
+  // SAVE MATRIX
+  const saveBtn = document.getElementById("save-matrix-btn");
+  if (saveBtn) saveBtn.addEventListener("click", saveMatrix);
+
+  // OPTIMIZE
+  const optBtn = document.getElementById("optimize-btn");
+  if (optBtn) optBtn.addEventListener("click", optimizePairing);
+
+  // 📄 NEW — download PDF
   const dlBtn = document.getElementById("download-lists-btn");
   if (dlBtn) {
     dlBtn.addEventListener("click", () => {
-      // Simple: trigger the download
+      if (typeof window.GAME_ID === "undefined") {
+        console.error("GAME_ID missing");
+        return;
+      }
       window.location.href = `/api/games/${window.GAME_ID}/lists_pdf`;
     });
   }
 
+  // Load the matrix normally
   try {
     await loadMatrixData();
-  } catch (err) {
+  } 
+  catch(err) {
     console.error(err);
   }
 });
 
-});
