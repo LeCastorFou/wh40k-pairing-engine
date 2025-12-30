@@ -93,8 +93,6 @@ function setCommentUI(comment) {
   gComment = comment || "";
   const input = document.getElementById("matrix-comment-input");
   if (input) input.value = gComment;
-  const display = document.getElementById("matrix-comment-display");
-  if (display) display.textContent = gComment.trim() ? gComment : "—";
 }
 
 function applyStateToButton(btn, stateKey) {
