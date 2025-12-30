@@ -307,6 +307,45 @@
       border-radius: 3px;
       border: 1px solid rgba(0,0,0,0.6);
     }
+
+    .notes-block {
+      margin-top: 1rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.6rem;
+    }
+
+    .notes-label {
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.16em;
+      color: #cfcfcf;
+    }
+
+    .notes-input {
+      width: 100%;
+      min-height: 110px;
+      padding: 0.6rem 0.7rem;
+      border-radius: 10px;
+      border: 1px solid rgba(255,255,255,0.14);
+      background: rgba(5,5,9,0.95);
+      color: #f5f5f5;
+      resize: vertical;
+      font-size: 0.85rem;
+      line-height: 1.35;
+    }
+
+    .notes-display {
+      padding: 0.6rem 0.7rem;
+      border-radius: 10px;
+      border: 1px dashed rgba(255,255,255,0.18);
+      background: rgba(0,0,0,0.35);
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-size: 0.85rem;
+      color: #ddd;
+      min-height: 40px;
+    }
   </style>
 </head>
 <body>
@@ -374,6 +413,13 @@
             <!-- Filled by JS -->
           </table>
         </div>
+      </div>
+
+      <div class="notes-block">
+        <div class="notes-label">Matchup notes</div>
+        <textarea id="matrix-comment-input" class="notes-input" placeholder="Add matchup notes for this game..."></textarea>
+        <div class="notes-label">Saved notes</div>
+        <div id="matrix-comment-display" class="notes-display">—</div>
       </div>
 
     <div style="margin-top: 1rem; display:flex; gap: .6rem; flex-wrap: wrap;">

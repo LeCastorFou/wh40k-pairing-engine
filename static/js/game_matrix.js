@@ -28,6 +28,7 @@ let gMatrix = {};      // key: "playerId-armyIndex" -> stateKey
 let gDirty = false;
 let gRosterLocked = false;
 let gAllPlayers = [];
+let gComment = "";
 
 
 /* =========================
@@ -86,6 +87,14 @@ function markDirty() {
   gDirty = true;
   document.getElementById("save-matrix-btn").disabled = false;
   setStatus("Changes not saved.", "unsaved");
+}
+
+function setCommentUI(comment) {
+  gComment = comment || "";
+  const input = document.getElementById("matrix-comment-input");
+  if (input) input.value = gComment;
+  const display = document.getElementById("matrix-comment-display");
+  if (display) display.textContent = gComment.trim() ? gComment : "—";
 }
 
 function applyStateToButton(btn, stateKey) {
@@ -345,6 +354,7 @@ async function loadMatrixData() {
 
   const data = await res.json();
   const game = data.game;
+  setCommentUI(game?.comment || "");
 
   gRosterLocked = !!data.roster_locked;
   gAllPlayers = data.all_players || [];
@@ -391,6 +401,9 @@ async function saveMatrix() {
   btn.disabled = true;
   setStatus("Saving...");
 
+  const commentInput = document.getElementById("matrix-comment-input");
+  if (commentInput) gComment = commentInput.value || "";
+
   const entries = Object.entries(gMatrix).map(([key, value]) => {
     const [playerIdStr, armyIndexStr] = key.split("-");
     return {
@@ -404,7 +417,7 @@ async function saveMatrix() {
     const res = await fetch(`/api/games/${window.GAME_ID}/matrix`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ entries })
+      body: JSON.stringify({ entries, comment: gComment })
     });
 
     const data = await res.json();
@@ -417,6 +430,7 @@ async function saveMatrix() {
     }
 
     gDirty = false;
+    setCommentUI(gComment);
     setStatus("Matrix saved. The data-vault is pleased.", "saved");
   } catch (err) {
     console.error(err);
@@ -502,6 +516,14 @@ document.addEventListener("DOMContentLoaded", async () => {
   const saveBtn = document.getElementById("save-matrix-btn");
   if (saveBtn) saveBtn.addEventListener("click", saveMatrix);
 
+  const commentInput = document.getElementById("matrix-comment-input");
+  if (commentInput) {
+    commentInput.addEventListener("input", () => {
+      gComment = commentInput.value || "";
+      markDirty();
+    });
+  }
+
   // OPTIMIZE
   const optBtn = document.getElementById("optimize-btn");
   if (optBtn) optBtn.addEventListener("click", optimizePairing);
@@ -526,4 +548,3 @@ document.addEventListener("DOMContentLoaded", async () => {
     console.error(err);
   }
 });
-

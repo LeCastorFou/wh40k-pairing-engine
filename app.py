@@ -389,6 +389,7 @@ def api_get_game_matrix(game_id):
             "opponent_name": game.get("opponent_name"),
             "armies": game.get("armies", []),
             "created_at": game.get("created_at"),
+            "comment": game.get("comment", ""),
         },
         "roster_locked": roster_locked,
         "players": roster if roster_locked else [],
@@ -417,8 +418,13 @@ def api_save_game_matrix(game_id):
     
     payload = request.get_json(silent=True) or {}
     entries = payload.get("entries", [])
+    comment = payload.get("comment", "")
     if not isinstance(entries, list):
         return jsonify({"error": "entries must be a list"}), 400
+    if comment is None:
+        comment = ""
+    if not isinstance(comment, str):
+        return jsonify({"error": "comment must be a string"}), 400
 
     new_matrix = {}
 
@@ -439,6 +445,7 @@ def api_save_game_matrix(game_id):
         new_matrix[key] = value
 
     game["matrix"] = new_matrix
+    game["comment"] = comment.strip()
     save_games(games)
 
     return jsonify({"status": "ok", "matrix": new_matrix})

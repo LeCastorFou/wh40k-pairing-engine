@@ -38,7 +38,8 @@ function computeWinrate(hist) {
   // Simple % win (draw not counted as win)
   const total = wins + losses;
   const winrate = total ? (wins / total) * 100 : null;
-  return { total, winrate, wins, draws, losses };
+  const total_games = wins + draws + losses;
+  return { total_games, winrate, wins, draws, losses };
 }
 
 function renderLists(player) {
