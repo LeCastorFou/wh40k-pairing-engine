@@ -111,6 +111,13 @@ function setFightStatus(text, mode = "normal") {
   if (mode === "saved") el.classList.add("saved");
 }
 
+function setFightNotes(comment) {
+  const el = document.getElementById("fight-notes-display");
+  if (!el) return;
+  const text = (comment || "").trim();
+  el.textContent = text ? comment : "—";
+}
+
 function markPairingsDirty() {
   gDirtyPairings = true;
   const btn = document.getElementById("fight-save-btn");
@@ -892,6 +899,7 @@ async function loadFightData() {
   gPlayers = dataMatrix.players || [];
   gArmies = game.armies || [];
   gMatrixStates = dataMatrix.matrix || {};
+  setFightNotes(game?.comment || "");
 
   const oppLabel = document.getElementById("fight-opponent-label");
   const cntLabel = document.getElementById("fight-army-count-label");

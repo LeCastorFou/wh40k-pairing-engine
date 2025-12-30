@@ -243,6 +243,32 @@
       margin-top: 0.1rem;
       width: fit-content;
     }
+
+    .notes-block {
+      margin-top: 0.9rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+    }
+
+    .notes-label {
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.16em;
+      color: #cfcfcf;
+    }
+
+    .notes-display {
+      padding: 0.6rem 0.7rem;
+      border-radius: 10px;
+      border: 1px dashed rgba(255,255,255,0.18);
+      background: rgba(0,0,0,0.35);
+      white-space: pre-wrap;
+      word-break: break-word;
+      font-size: 0.85rem;
+      color: #ddd;
+      min-height: 40px;
+    }
   </style>
 </head>
 <body>
@@ -272,6 +298,11 @@
 
         <div class="matrix-wrapper">
           <table class="matrix" id="fight-matrix-table"></table>
+        </div>
+
+        <div class="notes-block">
+          <div class="notes-label">Matchup notes</div>
+          <div id="fight-notes-display" class="notes-display">—</div>
         </div>
 
         <div style="margin-top:0.9rem;">
