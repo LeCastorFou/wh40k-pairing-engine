@@ -28,6 +28,30 @@ function renderGames(games) {
   statusEl.textContent = `${games.length} game(s) recorded.`;
   statusEl.className = "status";
 
+  const computeGameStatus = (game) => {
+    const pairings = Array.isArray(game.pairings) ? game.pairings : [];
+    const scores = pairings
+      .map(p => {
+        if (typeof p?.real_score === "number") return p.real_score;
+        if (typeof p?.real_score === "string" && p.real_score.trim() !== "") {
+          const parsed = parseInt(p.real_score, 10);
+          return Number.isNaN(parsed) ? null : parsed;
+        }
+        return null;
+      })
+      .filter(v => typeof v === "number");
+
+    const done = scores.length === 8;
+    let resultLabel = "—";
+    if (done) {
+      const total = scores.reduce((sum, v) => sum + v, 0);
+      if (total < 75) resultLabel = "LOST";
+      else if (total <= 85) resultLabel = "DRAW";
+      else resultLabel = "WON";
+    }
+    return { done, resultLabel };
+  };
+
   games.forEach(game => {
     const card = document.createElement("div");
     card.className = "game-card";
@@ -47,8 +71,31 @@ function renderGames(games) {
     const armiesCount = Array.isArray(game.armies) ? game.armies.length : 0;
     meta.textContent = `${armiesCount} codex · ${game.created_at || "Unknown date"}`;
 
+    const badges = document.createElement("div");
+    badges.className = "game-badges";
+
+    const { done, resultLabel } = computeGameStatus(game);
+
+    const statusBadge = document.createElement("span");
+    statusBadge.className = `badge ${done ? "badge-done" : "badge-pending"}`;
+    statusBadge.textContent = done ? "DONE" : "PENDING";
+
+    const resultBadge = document.createElement("span");
+    let resultClass = "badge-muted";
+    if (done) {
+      if (resultLabel === "WON") resultClass = "badge-win";
+      else if (resultLabel === "LOST") resultClass = "badge-loss";
+      else resultClass = "badge-draw";
+    }
+    resultBadge.className = `badge ${resultClass}`;
+    resultBadge.textContent = resultLabel;
+
+    badges.appendChild(statusBadge);
+    badges.appendChild(resultBadge);
+
     main.appendChild(opponent);
     main.appendChild(meta);
+    main.appendChild(badges);
 
     const actions = document.createElement("div");
     actions.className = "game-actions";
