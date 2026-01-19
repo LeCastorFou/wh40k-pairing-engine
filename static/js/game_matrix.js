@@ -29,6 +29,10 @@ let gDirty = false;
 let gRosterLocked = false;
 let gAllPlayers = [];
 let gComment = "";
+let gScenario = null;
+let gLayouts = {};
+let gPairings = [];
+let gLayoutsDirty = false;
 
 
 /* =========================
@@ -89,6 +93,12 @@ function markDirty() {
   setStatus("Changes not saved.", "unsaved");
 }
 
+function markLayoutsDirty() {
+  gLayoutsDirty = true;
+  document.getElementById("save-matrix-btn").disabled = false;
+  setStatus("Changes not saved.", "unsaved");
+}
+
 function setCommentUI(comment) {
   gComment = comment || "";
   const input = document.getElementById("matrix-comment-input");
@@ -108,6 +118,114 @@ function nextState(current) {
   if (idx === -1) return "GAMBLE";
   const nextIdx = (idx + 1) % STATE_ORDER.length;
   return STATE_ORDER[nextIdx];
+}
+
+function ensure8Slots(pairingsFromServer) {
+  const byGameNo = {};
+  (pairingsFromServer || []).forEach(p => {
+    if (p && typeof p.game_no === "number") byGameNo[p.game_no] = p;
+  });
+
+  const slots = [];
+  for (let i = 1; i <= 8; i++) {
+    const existing = byGameNo[i];
+    if (existing) {
+      slots.push({
+        game_no: i,
+        player_id: (typeof existing.player_id === "number") ? existing.player_id : null,
+        army_index: (typeof existing.army_index === "number") ? existing.army_index : null,
+        layout_n: (typeof existing.layout_n === "number") ? existing.layout_n : null,
+        real_score: (typeof existing.real_score === "number") ? existing.real_score : null
+      });
+    } else {
+      slots.push({
+        game_no: i,
+        player_id: null,
+        army_index: null,
+        layout_n: null,
+        real_score: null
+      });
+    }
+  }
+  return slots;
+}
+
+function renderLayoutSlots() {
+  const container = document.getElementById("matrix-layout-slots");
+  const hint = document.getElementById("matrix-layout-hint");
+  if (!container) return;
+  container.innerHTML = "";
+
+  const layouts = gScenario ? (gLayouts[gScenario] || []) : [];
+  if (hint) {
+    if (!gScenario) hint.textContent = "Choose a scenario to enable layout numbers.";
+    else if (!layouts.length) hint.textContent = "No layouts found for this scenario.";
+    else hint.textContent = "Assign layout numbers to each game slot.";
+  }
+
+  for (let i = 1; i <= 8; i++) {
+    let slot = gPairings.find(p => p.game_no === i);
+    if (!slot) {
+      slot = { game_no: i, player_id: null, army_index: null, layout_n: null, real_score: null };
+      gPairings.push(slot);
+    }
+    const card = document.createElement("div");
+    card.className = "layout-card";
+
+    const label = document.createElement("label");
+    label.textContent = `Game #${i}`;
+    card.appendChild(label);
+
+    const select = document.createElement("select");
+    select.className = "layout-select";
+    select.disabled = !gScenario || !layouts.length;
+
+    const opt0 = document.createElement("option");
+    opt0.value = "";
+    opt0.textContent = "Layout #…";
+    select.appendChild(opt0);
+
+    if (gScenario && layouts.length) {
+      layouts.forEach(({ n }) => {
+        const opt = document.createElement("option");
+        opt.value = String(n);
+        opt.textContent = `#${n}`;
+        select.appendChild(opt);
+      });
+    }
+
+    if (typeof slot.layout_n === "number") {
+      select.value = String(slot.layout_n);
+    }
+
+    select.addEventListener("change", () => {
+      const v = select.value.trim();
+      const nextVal = v ? parseInt(v, 10) : null;
+
+      if (typeof nextVal === "number") {
+        const dup = gPairings.some(p => p.game_no !== i && p.layout_n === nextVal);
+        if (dup) {
+          alert("This layout number is already used. Choose another.");
+          select.value = "";
+          slot.layout_n = null;
+          markLayoutsDirty();
+          return;
+        }
+      }
+
+      slot.layout_n = nextVal;
+      markLayoutsDirty();
+    });
+
+    card.appendChild(select);
+    container.appendChild(card);
+  }
+}
+
+function renderLayoutsPanel() {
+  const scenarioSelect = document.getElementById("matrix-scenario-select");
+  if (scenarioSelect) scenarioSelect.value = gScenario || "";
+  renderLayoutSlots();
 }
 
 
@@ -344,7 +462,12 @@ async function loadMatrixData() {
   setStatus("Loading matrix...");
   document.getElementById("save-matrix-btn").disabled = true;
 
-  const res = await fetch(`/api/games/${window.GAME_ID}/matrix`);
+  const [res, resLayouts, resPairings] = await Promise.all([
+    fetch(`/api/games/${window.GAME_ID}/matrix`),
+    fetch("/api/layouts"),
+    fetch(`/api/games/${window.GAME_ID}/pairings`)
+  ]);
+
   if (!res.ok) {
     setStatus("Error loading matrix.", "error");
     throw new Error("Failed to load matrix");
@@ -353,6 +476,13 @@ async function loadMatrixData() {
   const data = await res.json();
   const game = data.game;
   setCommentUI(game?.comment || "");
+
+  gLayouts = resLayouts.ok ? await resLayouts.json() : {};
+  const pairingsData = resPairings.ok ? await resPairings.json() : { scenario: null, pairings: [] };
+  gScenario = pairingsData.scenario || null;
+  gPairings = ensure8Slots(pairingsData.pairings);
+  gLayoutsDirty = false;
+  renderLayoutsPanel();
 
   gRosterLocked = !!data.roster_locked;
   gAllPlayers = data.all_players || [];
@@ -389,11 +519,12 @@ async function loadMatrixData() {
 
   buildMatrixTable();
   gDirty = false;
+  gLayoutsDirty = false;
   setStatus("Matrix loaded. Click cells to cycle through states.");
 }
 
 async function saveMatrix() {
-  if (!gDirty) return;
+  if (!gDirty && !gLayoutsDirty) return;
 
   const btn = document.getElementById("save-matrix-btn");
   btn.disabled = true;
@@ -411,29 +542,62 @@ async function saveMatrix() {
     };
   });
 
-  try {
-    const res = await fetch(`/api/games/${window.GAME_ID}/matrix`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ entries, comment: gComment })
-    });
+  let matrixOk = true;
+  let layoutsOk = true;
 
-    const data = await res.json();
+  if (gDirty) {
+    try {
+      const res = await fetch(`/api/games/${window.GAME_ID}/matrix`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ entries, comment: gComment })
+      });
 
-    if (!res.ok) {
-      console.error(data);
-      setStatus(data.error || "Error saving matrix.", "error");
+      const data = await res.json();
+
+      if (!res.ok) {
+        console.error(data);
+        setStatus(data.error || "Error saving matrix.", "error");
+        btn.disabled = false;
+        matrixOk = false;
+      } else {
+        gDirty = false;
+        setCommentUI(gComment);
+      }
+    } catch (err) {
+      console.error(err);
+      setStatus("Network or server error while saving.", "error");
       btn.disabled = false;
-      return;
+      matrixOk = false;
     }
+  }
 
-    gDirty = false;
-    setCommentUI(gComment);
-    setStatus("Matrix saved. The data-vault is pleased.", "saved");
-  } catch (err) {
-    console.error(err);
-    setStatus("Network or server error while saving.", "error");
-    btn.disabled = false;
+  if (gLayoutsDirty) {
+    try {
+      const res = await fetch(`/api/games/${window.GAME_ID}/pairings`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ scenario: gScenario, pairings: gPairings })
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        console.error(data);
+        setStatus(data.error || "Error saving layouts.", "error");
+        btn.disabled = false;
+        layoutsOk = false;
+      } else {
+        gLayoutsDirty = false;
+      }
+    } catch (err) {
+      console.error(err);
+      setStatus("Network or server error while saving layouts.", "error");
+      btn.disabled = false;
+      layoutsOk = false;
+    }
+  }
+
+  if (matrixOk && layoutsOk) {
+    setStatus("Changes saved. The data-vault is pleased.", "saved");
   }
 }
 
@@ -519,6 +683,33 @@ document.addEventListener("DOMContentLoaded", async () => {
     commentInput.addEventListener("input", () => {
       gComment = commentInput.value || "";
       markDirty();
+    });
+  }
+
+  const scenarioSelect = document.getElementById("matrix-scenario-select");
+  if (scenarioSelect) {
+    scenarioSelect.addEventListener("change", () => {
+      const newScenario = scenarioSelect.value || null;
+
+      if (gScenario && newScenario && gScenario !== newScenario) {
+        const hasLayouts = gPairings.some(p => typeof p.layout_n === "number");
+        if (hasLayouts) {
+          const ok = confirm("Changing scenario will clear all selected layout numbers. Continue?");
+          if (!ok) {
+            scenarioSelect.value = gScenario;
+            return;
+          }
+        }
+        gPairings.forEach(p => { p.layout_n = null; });
+      }
+
+      if (!newScenario) {
+        gPairings.forEach(p => { p.layout_n = null; });
+      }
+
+      gScenario = newScenario;
+      renderLayoutSlots();
+      markLayoutsDirty();
     });
   }
 
