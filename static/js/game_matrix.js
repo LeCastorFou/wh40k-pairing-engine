@@ -33,6 +33,9 @@ let gScenario = null;
 let gLayouts = {};
 let gPairings = [];
 let gScenarioDirty = false;
+let gMission = "";
+let gMissionDirty = false;
+let gAutoTemplate = false;
 
 
 /* =========================
@@ -99,10 +102,23 @@ function markScenarioDirty() {
   setStatus("Changes not saved.", "unsaved");
 }
 
+function markMissionDirty() {
+  gMissionDirty = true;
+  document.getElementById("save-matrix-btn").disabled = false;
+  setStatus("Changes not saved.", "unsaved");
+}
+
 function setCommentUI(comment) {
   gComment = comment || "";
   const input = document.getElementById("matrix-comment-input");
   if (input) input.value = gComment;
+  gAutoTemplate = false;
+}
+
+function setMissionUI(mission) {
+  gMission = mission || "";
+  const select = document.getElementById("matrix-mission-select");
+  if (select) select.value = gMission || "";
 }
 
 function applyStateToButton(btn, stateKey) {
@@ -186,6 +202,45 @@ function renderLayoutsPanel() {
   const scenarioSelect = document.getElementById("matrix-scenario-select");
   if (scenarioSelect) scenarioSelect.value = gScenario || "";
   renderLayoutsStrip();
+}
+
+function scenarioLabel(key) {
+  if (!key) return "—";
+  return key.replaceAll("_", " ").toLowerCase();
+}
+
+function missionLabel(key) {
+  if (!key) return "—";
+  return key.replaceAll("_", " ").toLowerCase();
+}
+
+function buildCommentTemplate() {
+  const missionLine = `Mission : ${missionLabel(gMission)}`;
+  const layoutLine = `Layout : ${scenarioLabel(gScenario)}`;
+  const names = (gPlayers || []).map(p => getPlayerName(p)).filter(Boolean);
+  const lines = names.map(name => `${name} : `);
+  return [missionLine, layoutLine, "", ...lines].join("\n");
+}
+
+function applyAutoTemplateIfEmpty() {
+  const input = document.getElementById("matrix-comment-input");
+  if (!input) return;
+  if (input.value.trim()) return;
+  const template = buildCommentTemplate();
+  input.value = template;
+  gComment = template;
+  gAutoTemplate = true;
+  markDirty();
+}
+
+function updateAutoTemplateIfActive() {
+  if (!gAutoTemplate) return;
+  const input = document.getElementById("matrix-comment-input");
+  if (!input) return;
+  const template = buildCommentTemplate();
+  input.value = template;
+  gComment = template;
+  markDirty();
 }
 
 
@@ -436,6 +491,7 @@ async function loadMatrixData() {
   const data = await res.json();
   const game = data.game;
   setCommentUI(game?.comment || "");
+  setMissionUI(game?.mission || "");
 
   gLayouts = resLayouts.ok ? await resLayouts.json() : {};
   const pairingsData = resPairings.ok ? await resPairings.json() : { scenario: null, pairings: [] };
@@ -480,11 +536,13 @@ async function loadMatrixData() {
   buildMatrixTable();
   gDirty = false;
   gScenarioDirty = false;
+  gMissionDirty = false;
   setStatus("Matrix loaded. Click cells to cycle through states.");
+  applyAutoTemplateIfEmpty();
 }
 
 async function saveMatrix() {
-  if (!gDirty && !gScenarioDirty) return;
+  if (!gDirty && !gScenarioDirty && !gMissionDirty) return;
 
   const btn = document.getElementById("save-matrix-btn");
   btn.disabled = true;
@@ -505,12 +563,12 @@ async function saveMatrix() {
   let matrixOk = true;
   let scenarioOk = true;
 
-  if (gDirty) {
+  if (gDirty || gMissionDirty) {
     try {
       const res = await fetch(`/api/games/${window.GAME_ID}/matrix`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ entries, comment: gComment })
+        body: JSON.stringify({ entries, comment: gComment, mission: gMission })
       });
 
       const data = await res.json();
@@ -523,6 +581,7 @@ async function saveMatrix() {
       } else {
         gDirty = false;
         setCommentUI(gComment);
+        gMissionDirty = false;
       }
     } catch (err) {
       console.error(err);
@@ -642,7 +701,17 @@ document.addEventListener("DOMContentLoaded", async () => {
   if (commentInput) {
     commentInput.addEventListener("input", () => {
       gComment = commentInput.value || "";
+      gAutoTemplate = false;
       markDirty();
+    });
+  }
+
+  const missionSelect = document.getElementById("matrix-mission-select");
+  if (missionSelect) {
+    missionSelect.addEventListener("change", () => {
+      gMission = missionSelect.value || "";
+      updateAutoTemplateIfActive();
+      markMissionDirty();
     });
   }
 
@@ -669,6 +738,7 @@ document.addEventListener("DOMContentLoaded", async () => {
 
       gScenario = newScenario;
       renderLayoutsStrip();
+      updateAutoTemplateIfActive();
       markScenarioDirty();
     });
   }
