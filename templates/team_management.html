@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Team Management - 40K Pairing</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700&family=Roboto:wght@300;400;500&display=swap');
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: 'Roboto', sans-serif;
+      background: radial-gradient(circle at top, #333 0, #050509 50%, #000 100%);
+      color: #f5f5f5;
+      padding: 2rem;
+    }
+
+    a {
+      color: #e57373;
+      text-decoration: none;
+    }
+
+    a:hover {
+      text-decoration: underline;
+    }
+
+    .layout {
+      max-width: 900px;
+      margin: 0 auto;
+    }
+
+    .top-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 1.5rem;
+      gap: 1rem;
+      flex-wrap: wrap;
+    }
+
+    .title-block h1 {
+      margin: 0;
+      font-family: 'Cinzel', serif;
+      font-size: 1.7rem;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+    }
+
+    .title-block p {
+      margin: 0.3rem 0 0;
+      font-size: 0.85rem;
+      color: #bbb;
+    }
+
+    .back-link {
+      font-size: 0.85rem;
+      text-transform: uppercase;
+      letter-spacing: 0.16em;
+    }
+
+    .panel {
+      background: linear-gradient(145deg, rgba(10,10,15,0.96), rgba(5,5,8,0.98));
+      border-radius: 14px;
+      border: 1px solid rgba(255,255,255,0.06);
+      padding: 1.25rem 1.5rem;
+      box-shadow: 0 0 28px rgba(0,0,0,0.85);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .panel::before {
+      content: "";
+      position: absolute;
+      inset: -40%;
+      background:
+        radial-gradient(circle at 0% 0%, rgba(255,0,0,0.1), transparent 60%),
+        radial-gradient(circle at 100% 100%, rgba(255,255,255,0.04), transparent 55%);
+      opacity: 0.4;
+      pointer-events: none;
+    }
+
+    .panel-inner {
+      position: relative;
+      z-index: 1;
+    }
+
+    h2 {
+      margin: 0 0 0.8rem;
+      font-size: 1rem;
+      text-transform: uppercase;
+      letter-spacing: 0.18em;
+      font-weight: 500;
+      color: #f5f5f5;
+    }
+
+    label {
+      display: block;
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.16em;
+      color: #cfcfcf;
+      margin-bottom: 0.4rem;
+    }
+
+    input[type="url"] {
+      width: 100%;
+      background: #111;
+      border: 1px solid #444;
+      border-radius: 999px;
+      padding: 0.65rem 0.95rem;
+      color: #f5f5f5;
+      font-size: 0.95rem;
+      outline: none;
+    }
+
+    input[type="url"]:focus {
+      border-color: #e74c3c;
+    }
+
+    .actions {
+      margin-top: 0.9rem;
+      display: flex;
+      gap: 0.6rem;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    button {
+      background: linear-gradient(135deg, #b71c1c, #6d0000);
+      color: #f5f5f5;
+      border: 1px solid rgba(255,255,255,0.18);
+      border-radius: 999px;
+      padding: 0.45rem 1.2rem;
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.16em;
+      cursor: pointer;
+      box-shadow: 0 0 12px rgba(255,0,0,0.25);
+      transition: transform 0.08s ease-out, box-shadow 0.08s ease-out;
+    }
+
+    button:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 0 20px rgba(255,0,0,0.35);
+    }
+
+    button.secondary {
+      background: transparent;
+      box-shadow: none;
+      border-color: rgba(255,255,255,0.18);
+      color: #ddd;
+    }
+
+    .status {
+      font-size: 0.8rem;
+      color: #bbb;
+      min-height: 1.2rem;
+    }
+
+    .status.error { color: #ff8a80; }
+    .status.success { color: #a5d6a7; }
+    .hint {
+      font-size: 0.8rem;
+      color: #aaa;
+      margin-top: 0.6rem;
+    }
+  </style>
+</head>
+<body>
+  <div class="layout">
+    <div class="top-bar">
+      <div class="title-block">
+        <h1>Team Management</h1>
+        <p>Configure team-level integrations for {{ team_name }}.</p>
+      </div>
+      <div>
+        <a href="{{ url_for('index') }}" class="back-link">&larr; Back to Command Centre</a>
+      </div>
+    </div>
+
+    <section class="panel">
+      <div class="panel-inner">
+        <h2>Discord Webhook</h2>
+        <form id="webhook-form">
+          <label for="discord-webhook">Webhook URL</label>
+          <input id="discord-webhook" name="discord-webhook" type="url" placeholder="https://discord.com/api/webhooks/..." value="{{ webhook_url }}">
+
+          <div class="actions">
+            <button type="submit">Save Webhook</button>
+            <button type="button" class="secondary" id="clear-webhook-btn">Clear</button>
+            <div id="status" class="status"></div>
+          </div>
+        </form>
+        <div class="hint">This will be used to post automated team notifications.</div>
+      </div>
+    </section>
+  </div>
+
+  <script src="{{ url_for('static', filename='js/team_management.js') }}"></script>
+</body>
+</html>

@@ -9,6 +9,8 @@ import re
 import itertools
 import math
 from io import BytesIO
+from urllib.request import Request, urlopen
+from urllib.error import URLError, HTTPError
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
 
@@ -34,6 +36,7 @@ DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 PLAYERS_FILE = DATA_DIR / "players.json"
 GAMES_FILE = DATA_DIR / "games.json"
+SETTINGS_FILE = DATA_DIR / "settings.json"
 
 ALLOWED_MATRIX_STATES = {
     "GAMBLE", "UNKNOWN", "EASY", "WIN",
@@ -50,6 +53,15 @@ STATE_TO_SCORE = {
     "EASY": 16.0,
     "UNKNOWN": 10.0,
     "GAMBLE": 10.0,
+}
+
+SCENARIO_LABELS = {
+    "HAMMER_ANVIL": "Hammer and Anvil",
+    "SEEK_DESTROY": "Seek and Destroy",
+    "CRUCIBLE_BATTLE": "Crucible Battle",
+    "TIPPING_POINTS": "Tipping Points",
+    "DAWN_OF_WAR": "Dawn of War",
+    "SWEEPING_ENGAGEMENT": "Sweeping Engagement"
 }
 
 def default_list_text(player: dict):
@@ -128,6 +140,34 @@ def save_players(players):
     with PLAYERS_FILE.open("w") as f:
         json.dump(players, f, indent=2)
 
+def load_settings():
+    if not SETTINGS_FILE.exists():
+        return {}
+    try:
+        with SETTINGS_FILE.open() as f:
+            data = json.load(f)
+            return data if isinstance(data, dict) else {}
+    except json.JSONDecodeError:
+        return {}
+
+def save_settings(settings):
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    with SETTINGS_FILE.open("w") as f:
+        json.dump(settings, f, indent=2)
+
+def send_discord_message(content: str):
+    settings = load_settings()
+    webhook = (settings.get("discord_webhook") or "").strip()
+    if not webhook or not content:
+        return
+    payload = json.dumps({"content": content}).encode("utf-8")
+    req = Request(webhook, data=payload, headers={"Content-Type": "application/json"})
+    try:
+        with urlopen(req, timeout=3) as _:
+            pass
+    except (HTTPError, URLError, ValueError):
+        return
+
 def next_player_id(players):
     """Compute next player id, even if some entries are odd."""
     ids = [p.get("id") for p in players if isinstance(p, dict) and "id" in p]
@@ -166,6 +206,38 @@ def index():
 def players_page():
     # Page with UI to manage players
     return render_template("players.html")
+
+@app.route("/team")
+@login_required
+def team_management_page():
+    settings = load_settings()
+    return render_template("team_management.html",
+        team_name=TEAM_NAME,
+        webhook_url=settings.get("discord_webhook", "")
+    )
+
+@app.route("/api/settings", methods=["GET"])
+@login_required
+def api_get_settings():
+    settings = load_settings()
+    return jsonify({
+        "discord_webhook": settings.get("discord_webhook", "")
+    })
+
+@app.route("/api/settings", methods=["POST"])
+@login_required
+def api_save_settings():
+    payload = request.get_json(silent=True) or {}
+    webhook = payload.get("discord_webhook", "")
+    if webhook is None:
+        webhook = ""
+    if not isinstance(webhook, str):
+        return jsonify({"error": "discord_webhook must be a string"}), 400
+
+    settings = load_settings()
+    settings["discord_webhook"] = webhook.strip()
+    save_settings(settings)
+    return jsonify({"status": "ok", "discord_webhook": settings["discord_webhook"]})
 
 
 # ---------- API: Players CRUD ----------
@@ -255,6 +327,12 @@ def api_add_list(player_id):
             if p["default_index"] is None:
                 p["default_index"] = 0
             save_players(players)
+            total_lists = len(p.get("lists") or [])
+            player_name = p.get("name") or f"Player {player_id}"
+            send_discord_message(
+                f"New battle plan uploaded by **{player_name}**. "
+                f"Arsenal now holds {total_lists} list(s)."
+            )
             return jsonify(p)
     return jsonify({"error": "Player not found"}), 404
 
@@ -432,6 +510,7 @@ def api_save_game_matrix(game_id):
     if not isinstance(mission, str):
         return jsonify({"error": "mission must be a string"}), 400
 
+    prev_matrix = game.get("matrix", {}) if isinstance(game.get("matrix"), dict) else {}
     new_matrix = {}
 
     for entry in entries:
@@ -455,6 +534,17 @@ def api_save_game_matrix(game_id):
     game["mission"] = mission.strip()
     save_games(games)
 
+    armies = game.get("armies", [])
+    expected = len(roster) * len(armies) if isinstance(roster, list) else 0
+    prev_complete = expected > 0 and len(prev_matrix) == expected
+    now_complete = expected > 0 and len(new_matrix) == expected
+    if now_complete and not prev_complete:
+        opp = game.get("opponent_name") or "Unknown opponent"
+        send_discord_message(
+            f"Matrix fully calibrated vs **{opp}**. "
+            f"All {expected} matchups locked in."
+        )
+
     return jsonify({"status": "ok", "matrix": new_matrix})
 
 
@@ -473,6 +563,8 @@ def api_save_game_pairings(game_id):
     game = next((g for g in games if g.get("id") == game_id), None)
     if not game:
         return jsonify({"error": "Game not found"}), 404
+
+    prev_pairings = game.get("pairings", []) if isinstance(game.get("pairings"), list) else []
 
     payload = request.get_json(silent=True) or {}
 
@@ -528,6 +620,69 @@ def api_save_game_pairings(game_id):
 
     game["pairings"] = pairings
     save_games(games)
+
+    opp = game.get("opponent_name") or "Unknown opponent"
+    scenario_label = SCENARIO_LABELS.get(game.get("scenario"), game.get("scenario") or "Unknown")
+
+    roster_map = {}
+    roster = game.get("roster", [])
+    if isinstance(roster, list):
+        for p in roster:
+            if isinstance(p, dict) and isinstance(p.get("player_id"), int):
+                roster_map[p["player_id"]] = p.get("player_name") or f"Player {p['player_id']}"
+    if not roster_map:
+        players = load_players()
+        roster_map = {p.get("id"): p.get("name") or f"Player {p.get('id')}" for p in players if isinstance(p, dict)}
+
+    armies = game.get("armies", [])
+    summary_lines = []
+    for p in sorted(pairings, key=lambda x: x.get("game_no", 0)):
+        player_id = p.get("player_id")
+        army_index = p.get("army_index")
+        if player_id is None or army_index is None:
+            continue
+        player_name = roster_map.get(player_id, f"Player {player_id}")
+        if isinstance(army_index, int) and army_index < len(armies):
+            faction = armies[army_index].get("faction") or f"Army #{army_index + 1}"
+        elif isinstance(army_index, int):
+            faction = f"Army #{army_index + 1}"
+        else:
+            faction = "Unknown Army"
+        layout_n = p.get("layout_n")
+        layout_text = f" · Layout #{layout_n}" if isinstance(layout_n, int) else ""
+        summary_lines.append(f"G{p.get('game_no')}: {player_name} vs {faction}{layout_text}")
+
+    summary_text = "\n".join(summary_lines) if summary_lines else "No matchups assigned yet."
+    send_discord_message(
+        f"Pairings saved vs **{opp}** (Scenario: {scenario_label}).\n{summary_text}"
+    )
+
+    def count_scores(items):
+        count = 0
+        total = 0
+        for entry in items:
+            score = entry.get("real_score")
+            if isinstance(score, int):
+                count += 1
+                total += score
+        return count, total
+
+    prev_count, _ = count_scores(prev_pairings)
+    new_count, new_total = count_scores(pairings)
+    if new_count > prev_count:
+        verdict = "—"
+        if new_count == 8:
+            if new_total < 75:
+                verdict = "Loss"
+            elif new_total <= 85:
+                verdict = "Draw"
+            else:
+                verdict = "Win"
+        verdict_text = f" Verdict: {verdict}." if new_count == 8 else ""
+        send_discord_message(
+            f"Results updated vs **{opp}**: {new_count}/8 scores recorded. "
+            f"Total so far {new_total} / 160.{verdict_text}"
+        )
 
     return jsonify({
         "status": "ok",
