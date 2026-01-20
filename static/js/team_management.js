@@ -39,10 +39,30 @@ async function saveSettings(webhook) {
   }
 }
 
+async function sendTestMessage() {
+  const statusEl = document.getElementById("status");
+  try {
+    const res = await fetch("/api/settings/test_webhook", { method: "POST" });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || "Failed to send test message");
+    if (statusEl) {
+      statusEl.textContent = "Test message sent.";
+      statusEl.className = "status success";
+    }
+  } catch (err) {
+    console.error(err);
+    if (statusEl) {
+      statusEl.textContent = err.message || "Failed to send test message.";
+      statusEl.className = "status error";
+    }
+  }
+}
+
 document.addEventListener("DOMContentLoaded", async () => {
   const form = document.getElementById("webhook-form");
   const input = document.getElementById("discord-webhook");
   const clearBtn = document.getElementById("clear-webhook-btn");
+  const testBtn = document.getElementById("test-webhook-btn");
   const statusEl = document.getElementById("status");
 
   await loadSettings();
@@ -67,6 +87,16 @@ document.addEventListener("DOMContentLoaded", async () => {
         statusEl.textContent = "Cleared. Click save to apply.";
         statusEl.className = "status";
       }
+    });
+  }
+
+  if (testBtn) {
+    testBtn.addEventListener("click", async () => {
+      if (statusEl) {
+        statusEl.textContent = "Sending test message...";
+        statusEl.className = "status";
+      }
+      await sendTestMessage();
     });
   }
 });
