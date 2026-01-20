@@ -71,6 +71,47 @@
     }
     .teamline strong{ color:#e74c3c; font-weight:500; }
 
+    .hero-bar {
+      display: flex;
+      align-items: center;
+      gap: 0.8rem;
+      flex-wrap: wrap;
+      margin-bottom: 0.6rem;
+    }
+
+    .kicker {
+      font-size: 0.75rem;
+      letter-spacing: 0.25em;
+      text-transform: uppercase;
+      color: #c0392b;
+    }
+
+    .status-pill {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.4rem;
+      padding: 0.25rem 0.7rem;
+      border-radius: 999px;
+      font-size: 0.65rem;
+      text-transform: uppercase;
+      letter-spacing: 0.18em;
+      border: 1px solid rgba(255,255,255,0.16);
+      background: rgba(255,255,255,0.05);
+      color: #ddd;
+    }
+
+    .status-pill.ok {
+      border-color: rgba(102,187,106,0.45);
+      color: #a5d6a7;
+      background: rgba(76,175,80,0.12);
+    }
+
+    .status-pill.locked {
+      border-color: rgba(255,193,7,0.45);
+      color: #ffecb3;
+      background: rgba(255,193,7,0.12);
+    }
+
     .flavour {
       font-size: 0.98rem;
       line-height: 1.65;
@@ -87,12 +128,127 @@
       background: linear-gradient(to right, transparent, #444, transparent);
     }
 
+    .main-grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
+      gap: 1.2rem;
+    }
+
+    .panel-lite {
+      border-radius: 16px;
+      border: 1px solid rgba(255,255,255,0.08);
+      background: rgba(7,7,10,0.86);
+      padding: 1rem 1.1rem;
+      box-shadow: 0 0 24px rgba(0,0,0,0.7);
+      position: relative;
+      overflow: hidden;
+    }
+
+    .panel-lite::before{
+      content: "";
+      position: absolute;
+      inset: -40%;
+      background:
+        radial-gradient(circle at 10% 10%, rgba(255,0,0,0.08), transparent 55%),
+        radial-gradient(circle at 80% 80%, rgba(255,255,255,0.04), transparent 55%);
+      opacity: 0.6;
+      pointer-events: none;
+    }
+
+    .panel-inner-lite{ position: relative; z-index: 1; }
+
+    .panel-title {
+      margin: 0 0 0.7rem;
+      font-size: 0.95rem;
+      text-transform: uppercase;
+      letter-spacing: 0.18em;
+      color: #f5f5f5;
+    }
+
     .actions {
       display: flex;
       gap: 1rem;
       align-items: center;
       margin-top: 1.5rem;
       flex-wrap: wrap;
+    }
+
+    .action-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(210px, 1fr));
+      gap: 0.9rem;
+    }
+
+    .action-card {
+      position: relative;
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+      padding: 0.9rem 1rem;
+      border-radius: 14px;
+      border: 1px solid rgba(255,255,255,0.1);
+      background: rgba(10,10,15,0.92);
+      text-decoration: none;
+      color: #f5f5f5;
+      transition: transform 0.12s ease-out, box-shadow 0.12s ease-out, border-color 0.2s;
+      min-height: 120px;
+      overflow: hidden;
+    }
+
+    .action-card::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(circle at 20% 0%, rgba(255,0,0,0.16), transparent 55%);
+      opacity: 0.65;
+      pointer-events: none;
+    }
+
+    .action-card:hover {
+      transform: translateY(-2px);
+      box-shadow: 0 0 24px rgba(255,0,0,0.25);
+      border-color: rgba(255,255,255,0.2);
+    }
+
+    .action-title {
+      font-size: 0.92rem;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      font-weight: 500;
+    }
+
+    .action-desc {
+      font-size: 0.82rem;
+      color: #bdbdbd;
+      line-height: 1.4;
+    }
+
+    .action-meta {
+      font-size: 0.7rem;
+      text-transform: uppercase;
+      letter-spacing: 0.2em;
+      color: #e57373;
+      margin-top: auto;
+    }
+
+    .action-card.primary {
+      background: linear-gradient(135deg, rgba(183,28,28,0.85), rgba(109,0,0,0.9));
+      border-color: rgba(255,255,255,0.18);
+      box-shadow: 0 0 18px rgba(255,0,0,0.25);
+    }
+
+    .brief-list {
+      display: flex;
+      flex-direction: column;
+      gap: 0.65rem;
+      font-size: 0.86rem;
+      color: #d0d0d0;
+      line-height: 1.5;
+    }
+
+    .brief-item strong {
+      color: #e57373;
+      font-weight: 500;
     }
 
     .btn {
@@ -231,11 +387,26 @@
       letter-spacing: 0.12em;
       text-transform: uppercase;
     }
+
+    @media (max-width: 860px) {
+      body { padding: 1.2rem; }
+      .frame { padding: 2rem 1.6rem; }
+      .main-grid { grid-template-columns: 1fr; }
+      .action-grid { grid-template-columns: repeat(auto-fit, minmax(180px, 1fr)); }
+    }
   </style>
 </head>
 <body>
   <div class="frame">
     <div class="frame-inner">
+      <div class="hero-bar">
+        <div class="kicker">Command Centre</div>
+        {% if logged_in %}
+          <div class="status-pill ok">Access Granted</div>
+        {% else %}
+          <div class="status-pill locked">Access Locked</div>
+        {% endif %}
+      </div>
       <div class="subtitle">In the grim darkness of the far future...</div>
       <h1>Warhammer 40,000 Team Pairing Engine</h1>
 
@@ -249,22 +420,45 @@
 
       <hr class="divider" />
 
-      <div class="locked-wrap">
-        <div class="actions" id="actions">
-          <a href="{{ url_for('players_page') }}" class="btn">Manage Players &amp; Lists</a>
-          <a href="{{ url_for('new_game_page') }}" class="btn btn-secondary">Create Game vs Opponent</a>
-          <a href="{{ url_for('games_list_page') }}" class="btn btn-secondary">View Saved Games</a>
-          <a href="{{ url_for('team_management_page') }}" class="btn btn-secondary">Team Management</a>
-          <a href="{{ url_for('report_page') }}"
-            class="btn btn-secondary"
-            style="border-color:#66bb6a; color:#e0ffe0;">
-            Players Action Report
-          </a>
-          <!-- NEW: logout appe ars only when logged in -->
-          {% if logged_in %}
-            <button class="btn btn-secondary" id="logout-btn">Logout</button>
-          {% endif %}
-        </div>
+      <div class="main-grid">
+        <div class="locked-wrap panel-lite">
+          <div class="panel-inner-lite">
+            <div class="panel-title">Operations</div>
+            <div class="action-grid" id="actions">
+              <a href="{{ url_for('players_page') }}" class="action-card primary">
+                <div class="action-title">Manage Players</div>
+                <div class="action-desc">Curate rosters, lists, and active commanders.</div>
+                <div class="action-meta">Roster Control</div>
+              </a>
+              <a href="{{ url_for('new_game_page') }}" class="action-card">
+                <div class="action-title">Create New Game</div>
+                <div class="action-desc">Log an opponent and upload codex lists.</div>
+                <div class="action-meta">New Conflict</div>
+              </a>
+              <a href="{{ url_for('games_list_page') }}" class="action-card">
+                <div class="action-title">Saved Games</div>
+                <div class="action-desc">Review past matchups and pairings.</div>
+                <div class="action-meta">Archive</div>
+              </a>
+              <a href="{{ url_for('team_management_page') }}" class="action-card">
+                <div class="action-title">Team Management</div>
+                <div class="action-desc">Webhook config and team-level tools.</div>
+                <div class="action-meta">Command Tools</div>
+              </a>
+              <a href="{{ url_for('report_page') }}" class="action-card">
+                <div class="action-title">Action Report</div>
+                <div class="action-desc">Performance summaries and trends.</div>
+                <div class="action-meta">Intel Brief</div>
+              </a>
+              {% if logged_in %}
+                <button class="action-card" id="logout-btn" style="cursor:pointer; background:rgba(20,20,25,0.9);">
+                  <div class="action-title">Logout</div>
+                  <div class="action-desc">Secure the bunker and end session.</div>
+                  <div class="action-meta">Seal Access</div>
+                </button>
+              {% endif %}
+            </div>
+          </div>
 
         <!-- NEW: overlay shown only when NOT logged in -->
         {% if not logged_in %}
@@ -273,6 +467,24 @@
           <button class="btn" id="open-login-btn">Enter Bunker</button>
         </div>
         {% endif %}
+      </div>
+
+        <div class="panel-lite">
+          <div class="panel-inner-lite">
+            <div class="panel-title">Briefing</div>
+            <div class="brief-list">
+              <div class="brief-item"><strong>1.</strong> Lock your 8-player roster before matrix work.</div>
+              <div class="brief-item"><strong>2.</strong> Fill matchup states, then optimize pairings.</div>
+              <div class="brief-item"><strong>3.</strong> Save fight results to unlock reports.</div>
+              <div class="brief-item"><strong>Tip:</strong> Keep your webhook online for live team pings.</div>
+            </div>
+            <div class="divider" style="margin:1rem 0;"></div>
+            <div class="brief-list">
+              <div class="brief-item"><strong>Status:</strong> {{ "Bunker open" if logged_in else "Bunker sealed" }}</div>
+              <div class="brief-item"><strong>Protocol:</strong> Grim dark efficiency, zero mercy.</div>
+            </div>
+          </div>
+        </div>
       </div>
     </div>
   </div>
