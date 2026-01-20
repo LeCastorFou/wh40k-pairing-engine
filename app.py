@@ -160,16 +160,17 @@ def send_discord_message(content: str):
     webhook = (settings.get("discord_webhook") or "").strip()
     if not webhook or not content:
         app.logger.info("Discord webhook not configured or empty message. Skipping.")
-        return
+        return False
     payload = json.dumps({"content": content}).encode("utf-8")
     req = Request(webhook, data=payload, headers={"Content-Type": "application/json"})
     try:
         with urlopen(req, timeout=3) as resp:
             code = resp.getcode()
         app.logger.info("Discord webhook sent (%s).", code)
+        return True
     except (HTTPError, URLError, ValueError) as exc:
         app.logger.warning("Discord webhook failed: %s", exc)
-        return
+        return False
 
 def next_player_id(players):
     """Compute next player id, even if some entries are odd."""
@@ -249,7 +250,21 @@ def api_test_webhook():
     webhook = (settings.get("discord_webhook") or "").strip()
     if not webhook:
         return jsonify({"error": "No webhook configured"}), 400
-    send_discord_message("Test transmission: the vox relays are operational. 📡")
+    ok = send_discord_message("Test transmission: the vox relays are operational. 📡")
+    if not ok:
+        return jsonify({"error": "Webhook request failed. Check server logs."}), 502
+    return jsonify({"status": "ok"})
+
+@app.route("/api/settings/send_message", methods=["POST"])
+@login_required
+def api_send_custom_message():
+    payload = request.get_json(silent=True) or {}
+    content = (payload.get("content") or "").strip()
+    if not content:
+        return jsonify({"error": "Message content is required"}), 400
+    ok = send_discord_message(content)
+    if not ok:
+        return jsonify({"error": "Webhook request failed. Check server logs."}), 502
     return jsonify({"status": "ok"})
 
 
