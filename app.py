@@ -164,7 +164,12 @@ def send_discord_message(content: str):
     masked = f"{webhook[:6]}...{webhook[-4:]}" if len(webhook) >= 12 else "<short>"
     app.logger.info("Discord webhook target: %s", masked)
     payload = json.dumps({"content": content}).encode("utf-8")
-    req = Request(webhook, data=payload, headers={"Content-Type": "application/json"})
+    headers = {
+        "Content-Type": "application/json",
+        "Accept": "application/json",
+        "User-Agent": "pairingapp-webhook/1.0"
+    }
+    req = Request(webhook, data=payload, headers=headers)
     try:
         with urlopen(req, timeout=3) as resp:
             code = resp.getcode()
