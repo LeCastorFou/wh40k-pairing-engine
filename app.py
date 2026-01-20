@@ -161,6 +161,8 @@ def send_discord_message(content: str):
     if not webhook or not content:
         app.logger.info("Discord webhook not configured or empty message. Skipping.")
         return False
+    masked = f"{webhook[:6]}...{webhook[-4:]}" if len(webhook) >= 12 else "<short>"
+    app.logger.info("Discord webhook target: %s", masked)
     payload = json.dumps({"content": content}).encode("utf-8")
     req = Request(webhook, data=payload, headers={"Content-Type": "application/json"})
     try:
@@ -169,7 +171,18 @@ def send_discord_message(content: str):
         app.logger.info("Discord webhook sent (%s).", code)
         return True
     except (HTTPError, URLError, ValueError) as exc:
-        app.logger.warning("Discord webhook failed: %s", exc)
+        if isinstance(exc, HTTPError):
+            try:
+                body = exc.read().decode("utf-8", errors="ignore")
+            except Exception:
+                body = ""
+            app.logger.warning(
+                "Discord webhook failed: HTTP %s. Body: %s",
+                exc.code,
+                body or "<empty>"
+            )
+        else:
+            app.logger.warning("Discord webhook failed: %s", exc)
         return False
 
 def next_player_id(players):
