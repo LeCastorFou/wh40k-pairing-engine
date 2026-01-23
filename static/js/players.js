@@ -188,6 +188,7 @@ function renderPlayers(players) {
       player.lists.forEach((text, idx) => {
         const listDiv = document.createElement("div");
         listDiv.className = "list-item";
+        if (player.default_index === idx) listDiv.classList.add("is-default");
 
         const wrap = document.createElement("div");
         wrap.className = "pre-expand";
