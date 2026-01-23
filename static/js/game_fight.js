@@ -820,6 +820,12 @@ function assignPairingToSlot(gameNo, playerId, armyIndex) {
   refreshAllLayoutDropdowns();
 
   markPairingsDirty();
+
+  // Auto-advance to next unfilled game (only change via Clear).
+  const nextSlot =
+    gPairings.find(s => s.game_no > gameNo && (!s.player_id || typeof s.army_index !== "number")) ||
+    gPairings.find(s => s.game_no < gameNo && (!s.player_id || typeof s.army_index !== "number"));
+  if (nextSlot) setActiveSlot(nextSlot.game_no);
 }
 
 /* =========================
