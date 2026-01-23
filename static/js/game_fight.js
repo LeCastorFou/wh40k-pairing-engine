@@ -286,8 +286,23 @@ function buildMatrixTable() {
   if (!table) return;
   table.innerHTML = "";
 
-  const usedRows = new Set(gPairings.filter(p => p.player_id).map(p => p.player_id));
-  const usedCols = new Set(gPairings.filter(p => typeof p.army_index === "number").map(p => p.army_index));
+  const usedRows = new Set(
+    gPairings
+      .filter(p => typeof p.player_id === "number")
+      .map(p => p.player_id)
+  );
+  const usedCols = new Set(
+    gPairings
+      .filter(p => typeof p.army_index === "number")
+      .map(p => p.army_index)
+  );
+
+  const visiblePlayers = gPlayers
+    .map(player => ({ player, pid: getPlayerId(player) }))
+    .filter(({ pid }) => !usedRows.has(pid));
+  const visibleArmies = gArmies
+    .map((army, idx) => ({ army, idx }))
+    .filter(({ idx }) => !usedCols.has(idx));
 
   // ---- header
   const thead = document.createElement("thead");
@@ -298,7 +313,7 @@ function buildMatrixTable() {
   cornerTh.textContent = "Player \\ Opponent";
   headerRow.appendChild(cornerTh);
 
-  gArmies.forEach((army, idx) => {
+  visibleArmies.forEach(({ army, idx }) => {
     const th = document.createElement("th");
 
     const headerDiv = document.createElement("div");
@@ -326,7 +341,7 @@ function buildMatrixTable() {
   // ---- body
   const tbody = document.createElement("tbody");
 
-  gPlayers.forEach(player => {
+  visiblePlayers.forEach(({ player, pid }) => {
     const tr = document.createElement("tr");
 
     const nameTd = document.createElement("td");
@@ -335,7 +350,6 @@ function buildMatrixTable() {
     const wrapper = document.createElement("div");
     const nameLine = document.createElement("div");
 
-    const pid = getPlayerId(player);
     nameLine.textContent = getPlayerName(player) || `Player ${pid}`;
     const listLine = document.createElement("div");
     listLine.textContent = getPlayerListLabel(player);
@@ -346,17 +360,11 @@ function buildMatrixTable() {
     nameTd.appendChild(wrapper);
     tr.appendChild(nameTd);
 
-    gArmies.forEach((army, armyIdx) => {
+    visibleArmies.forEach(({ army, idx: armyIdx }) => {
       const td = document.createElement("td");
       td.className = "matrix-cell";
-      const pid = getPlayerId(player);
       td.dataset.playerId = pid;
       td.dataset.armyIndex = armyIdx;
-
-      // Used logic
-      const usedRow = usedRows.has(pid);
-      const usedCol = usedCols.has(armyIdx);
-      if (usedRow || usedCol) td.classList.add("used");
 
       const inner = document.createElement("div");
       inner.className = "matrix-cell-inner";
@@ -369,8 +377,6 @@ function buildMatrixTable() {
 
       td.addEventListener("click", () => {
         if (!gActiveSlot) return;
-        if (td.classList.contains("used")) return;
-
         const slot = gPairings.find(s => s.game_no === gActiveSlot);
 
         if (!gScenario) {
