@@ -14,6 +14,7 @@ const FACTIONS = [
   "Dark Angels",
   "Death Guard",
   "Drukhari",
+  "Emperor's Children",
   "Genestealer Cults",
   "Grey Knights",
   "Harlequins",
