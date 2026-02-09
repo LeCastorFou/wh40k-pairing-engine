@@ -205,6 +205,7 @@
       letter-spacing: 0.03em;
       cursor: grab;
       user-select: none;
+      box-shadow: 0 0 10px rgba(0,0,0,0.45);
     }
 
     .archetype-item:active { cursor: grabbing; }
@@ -294,6 +295,7 @@
       flex-direction: column;
       gap: 0.25rem;
       cursor: grab;
+      box-shadow: 0 0 12px rgba(0,0,0,0.5);
     }
 
     .roster-item:active { cursor: grabbing; }
@@ -382,6 +384,7 @@
             <div class="panel-head">
               <h2>Roster Proposal</h2>
               <div class="panel-actions">
+                <button class="ghost" id="save-roster-btn" type="button">Save roster</button>
                 <button class="ghost" id="clear-roster-btn" type="button">Clear roster</button>
                 <button id="send-discord-btn" type="button">Send to Discord</button>
               </div>

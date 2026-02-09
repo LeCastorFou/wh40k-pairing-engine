@@ -38,6 +38,16 @@ const ROLES = [
 let playersCache = [];
 let roster = Array.from({ length: 8 }, () => null);
 
+function factionColor(faction) {
+  const str = (faction || "").toString();
+  let hash = 0;
+  for (let i = 0; i < str.length; i++) {
+    hash = (hash * 31 + str.charCodeAt(i)) | 0;
+  }
+  const hue = Math.abs(hash) % 360;
+  return `hsl(${hue} 65% 55%)`;
+}
+
 function formatRole(role) {
   const match = ROLES.find(r => r.value === role);
   return match ? match.label : role;
@@ -84,6 +94,10 @@ function buildArchetypeLabel(archetype) {
 function createArchetypeChip(archetype, player, index) {
   const chip = document.createElement("div");
   chip.className = "archetype-item";
+  const color = factionColor(archetype.faction);
+  chip.style.borderColor = color;
+  chip.style.boxShadow = `0 0 10px ${color}33`;
+  chip.style.background = `linear-gradient(135deg, ${color}22, rgba(18,18,25,0.92))`;
   chip.draggable = true;
   chip.addEventListener("dragstart", e => {
     const payload = {
@@ -168,11 +182,7 @@ function renderPlayers() {
     name.className = "player-name";
     name.textContent = player.name || `Player ${player.id}`;
 
-    const badge = document.createElement("span");
-    badge.className = `badge ${player.active ? "active" : ""}`.trim();
-    badge.textContent = player.active ? "Active" : "Inactive";
-
-    header.append(name, badge);
+    header.append(name);
 
     const archetypeList = document.createElement("div");
     archetypeList.className = "archetype-list";
@@ -312,7 +322,13 @@ function renderRoster() {
 
     const title = document.createElement("div");
     title.className = "slot-title";
-    title.textContent = `Slot ${index + 1}`;
+    if (index === 0) {
+      title.textContent = "DEF1";
+    } else if (index === 1) {
+      title.textContent = "DEF2";
+    } else {
+      title.textContent = `Slot ${index + 1}`;
+    }
 
     slotEl.appendChild(title);
 
@@ -324,6 +340,10 @@ function renderRoster() {
     } else {
       const item = document.createElement("div");
       item.className = "roster-item";
+      const color = factionColor(slot.faction);
+      item.style.borderColor = color;
+      item.style.boxShadow = `0 0 12px ${color}33`;
+      item.style.background = `linear-gradient(135deg, ${color}22, rgba(18,18,25,0.92))`;
       item.draggable = true;
       item.addEventListener("dragstart", e => {
         const payload = { ...slot, sourceSlot: index };
@@ -378,6 +398,33 @@ function buildRosterMessage() {
   return lines.join("\n");
 }
 
+function saveRosterDraft() {
+  const payload = {
+    saved_at: new Date().toISOString(),
+    roster
+  };
+  localStorage.setItem("pairingapp_roster_draft", JSON.stringify(payload));
+  setStatus("Roster saved locally.", "success");
+}
+
+function loadRosterDraft() {
+  const raw = localStorage.getItem("pairingapp_roster_draft");
+  if (!raw) return;
+  try {
+    const data = JSON.parse(raw);
+    if (data && Array.isArray(data.roster) && data.roster.length === 8) {
+      roster = data.roster.map(slot => {
+        if (!slot || typeof slot !== "object") return null;
+        if (!slot.faction || !slot.role || !slot.player_id) return null;
+        return slot;
+      });
+      renderRoster();
+    }
+  } catch (err) {
+    console.warn("Unable to load roster draft", err);
+  }
+}
+
 async function sendRosterToDiscord() {
   if (!roster.some(slot => slot)) {
     setStatus("Roster is empty. Drag archetypes first.", "error");
@@ -402,9 +449,11 @@ async function sendRosterToDiscord() {
 }
 
 document.addEventListener("DOMContentLoaded", () => {
+  loadRosterDraft();
   renderRoster();
   fetchPlayers();
 
+  document.getElementById("save-roster-btn").addEventListener("click", saveRosterDraft);
   document.getElementById("clear-roster-btn").addEventListener("click", () => {
     roster = Array.from({ length: 8 }, () => null);
     renderRoster();
