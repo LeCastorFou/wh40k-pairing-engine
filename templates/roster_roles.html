@@ -1,0 +1,399 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Roster Roles &amp; Archetypes - 40K Pairing</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700&family=Roboto:wght@300;400;500&display=swap');
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: 'Roboto', sans-serif;
+      background: radial-gradient(circle at top, #333 0, #050509 50%, #000 100%);
+      color: #f5f5f5;
+      padding: 2rem;
+      line-height: 1.5;
+    }
+
+    a {
+      color: #e57373;
+      text-decoration: none;
+    }
+
+    a:hover { text-decoration: underline; }
+
+    .layout {
+      max-width: 1200px;
+      margin: 0 auto;
+    }
+
+    .top-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      margin-bottom: 1.5rem;
+      gap: 1rem;
+      flex-wrap: wrap;
+    }
+
+    .title-block h1 {
+      margin: 0;
+      font-family: 'Cinzel', serif;
+      font-size: 1.7rem;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+    }
+
+    .title-block p {
+      margin: 0.3rem 0 0;
+      font-size: 0.85rem;
+      color: #bbb;
+    }
+
+    .back-link {
+      font-size: 0.85rem;
+      text-transform: uppercase;
+      letter-spacing: 0.16em;
+    }
+
+    .panel {
+      background: linear-gradient(145deg, rgba(10,10,15,0.96), rgba(5,5,8,0.98));
+      border-radius: 14px;
+      border: 1px solid rgba(255,255,255,0.06);
+      padding: 1.25rem 1.5rem;
+      box-shadow: 0 0 28px rgba(0,0,0,0.85);
+      margin-bottom: 1.5rem;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .panel::before {
+      content: "";
+      position: absolute;
+      inset: -40%;
+      background:
+        radial-gradient(circle at 0% 0%, rgba(255,0,0,0.1), transparent 60%),
+        radial-gradient(circle at 100% 100%, rgba(255,255,255,0.04), transparent 55%);
+      opacity: 0.4;
+      pointer-events: none;
+    }
+
+    .panel-inner { position: relative; z-index: 1; }
+
+    h2 {
+      margin: 0 0 0.75rem;
+      font-size: 1rem;
+      text-transform: uppercase;
+      letter-spacing: 0.18em;
+      font-weight: 500;
+      color: #f5f5f5;
+    }
+
+    .helper-text {
+      font-size: 0.8rem;
+      color: #888;
+      margin-top: -0.2rem;
+      margin-bottom: 1rem;
+    }
+
+    button {
+      background: linear-gradient(135deg, #b71c1c, #6d0000);
+      color: #f5f5f5;
+      border: 1px solid rgba(255,255,255,0.18);
+      border-radius: 999px;
+      padding: 0.45rem 1.2rem;
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.16em;
+      cursor: pointer;
+      box-shadow: 0 0 12px rgba(255,0,0,0.25);
+      transition: transform 0.08s ease-out, box-shadow 0.08s ease-out;
+      white-space: nowrap;
+    }
+
+    button:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 0 20px rgba(255,0,0,0.35);
+    }
+
+    button:disabled {
+      opacity: 0.6;
+      cursor: default;
+      box-shadow: none;
+    }
+
+    button.ghost {
+      background: rgba(20,20,25,0.85);
+      border-color: rgba(255,255,255,0.18);
+      box-shadow: none;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: minmax(0, 1.2fr) minmax(0, 0.8fr);
+      gap: 1.4rem;
+      align-items: start;
+    }
+
+    #players-container {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 1rem;
+    }
+
+    .player-card {
+      background: rgba(7,7,10,0.96);
+      border-radius: 12px;
+      border: 1px solid rgba(255,255,255,0.08);
+      padding: 1rem 1.1rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.7rem;
+      box-shadow: 0 0 20px rgba(0,0,0,0.9);
+    }
+
+    .player-header {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 0.5rem;
+      flex-wrap: wrap;
+    }
+
+    .player-name {
+      font-weight: 500;
+      font-size: 1.05rem;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+    }
+
+    .badge {
+      font-size: 0.65rem;
+      padding: 0.1rem 0.5rem;
+      border-radius: 999px;
+      border: 1px solid #444;
+      color: #bbb;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+    }
+
+    .badge.active {
+      border-color: rgba(102,187,106,0.45);
+      color: #a5d6a7;
+      background: rgba(76,175,80,0.12);
+    }
+
+    .archetype-list {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.5rem;
+      align-items: center;
+    }
+
+    .archetype-item {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.5rem;
+      padding: 0.3rem 0.6rem;
+      border-radius: 999px;
+      border: 1px solid rgba(255,255,255,0.18);
+      background: rgba(18,18,25,0.92);
+      font-size: 0.75rem;
+      letter-spacing: 0.03em;
+      cursor: grab;
+      user-select: none;
+    }
+
+    .archetype-item:active { cursor: grabbing; }
+
+    .archetype-text { white-space: nowrap; }
+
+    .archetype-delete {
+      border: none;
+      background: transparent;
+      color: #ff8a80;
+      font-size: 0.9rem;
+      cursor: pointer;
+      padding: 0;
+    }
+
+    .archetype-empty {
+      font-size: 0.8rem;
+      color: #777;
+    }
+
+    .archetype-form {
+      display: grid;
+      grid-template-columns: minmax(160px, 1.3fr) minmax(120px, 0.6fr) minmax(160px, 1.2fr) auto;
+      gap: 0.6rem;
+      align-items: center;
+      flex-wrap: wrap;
+    }
+
+    .archetype-form select,
+    .archetype-form input[type="text"] {
+      background: #111;
+      border: 1px solid #444;
+      border-radius: 999px;
+      padding: 0.35rem 0.8rem;
+      color: #f5f5f5;
+      font-size: 0.8rem;
+      outline: none;
+      width: 100%;
+    }
+
+    .archetype-form select:focus,
+    .archetype-form input[type="text"]:focus {
+      border-color: #e74c3c;
+    }
+
+    .roster-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(170px, 1fr));
+      gap: 0.8rem;
+    }
+
+    .roster-slot {
+      border-radius: 12px;
+      border: 1px dashed rgba(255,255,255,0.2);
+      background: rgba(8,8,12,0.92);
+      padding: 0.7rem;
+      min-height: 130px;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      transition: border-color 0.15s ease-out, box-shadow 0.15s ease-out;
+    }
+
+    .roster-slot.drag-over {
+      border-color: rgba(255,255,255,0.6);
+      box-shadow: 0 0 14px rgba(255,255,255,0.2);
+    }
+
+    .slot-title {
+      text-transform: uppercase;
+      letter-spacing: 0.18em;
+      font-size: 0.65rem;
+      color: #aaa;
+    }
+
+    .slot-empty {
+      color: #666;
+      font-size: 0.8rem;
+    }
+
+    .roster-item {
+      border-radius: 10px;
+      border: 1px solid rgba(255,255,255,0.18);
+      background: rgba(18,18,25,0.92);
+      padding: 0.5rem 0.6rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.25rem;
+      cursor: grab;
+    }
+
+    .roster-item:active { cursor: grabbing; }
+
+    .roster-player {
+      font-size: 0.85rem;
+      font-weight: 500;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+    }
+
+    .roster-meta {
+      font-size: 0.75rem;
+      color: #ccc;
+    }
+
+    .slot-actions {
+      display: flex;
+      justify-content: flex-end;
+    }
+
+    .slot-actions button {
+      padding: 0.25rem 0.7rem;
+      font-size: 0.6rem;
+      letter-spacing: 0.12em;
+    }
+
+    .panel-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 0.8rem;
+      flex-wrap: wrap;
+      margin-bottom: 0.6rem;
+    }
+
+    .panel-actions {
+      display: flex;
+      gap: 0.6rem;
+      flex-wrap: wrap;
+    }
+
+    .status {
+      font-size: 0.8rem;
+      color: #bbb;
+      margin-top: 0.7rem;
+    }
+
+    .status.error { color: #ff8a80; }
+    .status.success { color: #a5d6a7; }
+
+    @media (max-width: 980px) {
+      .grid { grid-template-columns: 1fr; }
+      .archetype-form { grid-template-columns: 1fr 1fr; }
+    }
+
+    @media (max-width: 600px) {
+      body { padding: 1.2rem; }
+      .archetype-form { grid-template-columns: 1fr; }
+    }
+  </style>
+</head>
+<body>
+  <div class="layout">
+    <div class="top-bar">
+      <div class="title-block">
+        <h1>Roster Roles &amp; Archetypes</h1>
+        <p>Define each player role, then drag their archetypes into your roster proposal.</p>
+      </div>
+      <div>
+        <a href="{{ url_for('index') }}" class="back-link">&larr; Back to Command Centre</a>
+      </div>
+    </div>
+
+    <section class="panel">
+      <div class="panel-inner">
+        <h2>Players &amp; Archetypes</h2>
+        <p class="helper-text">
+          Each player can define up to <strong>3 archetypes</strong>. Drag an archetype into a roster slot.
+        </p>
+        <div class="grid">
+          <div>
+            <div id="players-container"></div>
+          </div>
+          <div>
+            <div class="panel-head">
+              <h2>Roster Proposal</h2>
+              <div class="panel-actions">
+                <button class="ghost" id="clear-roster-btn" type="button">Clear roster</button>
+                <button id="send-discord-btn" type="button">Send to Discord</button>
+              </div>
+            </div>
+            <div id="roster-grid" class="roster-grid"></div>
+            <div id="status" class="status"></div>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <script src="{{ url_for('static', filename='js/roster_roles.js') }}"></script>
+</body>
+</html>

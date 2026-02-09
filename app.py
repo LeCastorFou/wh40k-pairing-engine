@@ -43,6 +43,8 @@ ALLOWED_MATRIX_STATES = {
     "S_WIN", "S_LOOSE", "LOOSE", "HELP"
 }
 
+ALLOWED_ARCHETYPE_ROLES = {"defense", "attack", "blunt"}
+
 
 STATE_TO_SCORE = {
     "HELP": 3.0,
@@ -124,6 +126,8 @@ def normalize_players(players):
     for p in players:
         if not isinstance(p, dict):
             continue
+        if "archetypes" not in p or not isinstance(p.get("archetypes"), list):
+            p["archetypes"] = []
         if "active" not in p:
             if active_count < 8:
                 p["active"] = True
@@ -229,6 +233,11 @@ def players_page():
     # Page with UI to manage players
     return render_template("players.html")
 
+@app.route("/roster")
+@login_required
+def roster_page():
+    return render_template("roster_roles.html")
+
 @app.route("/team")
 @login_required
 def team_management_page():
@@ -310,6 +319,7 @@ def api_add_player():
             "name": name,
             "lists": [],
             "default_index": None,
+            "archetypes": [],
             "active": False,   # NEW
         }
         players.append(new_player)
@@ -419,6 +429,58 @@ def api_set_default_list(player_id):
             p["default_index"] = index
             save_players(players)
             return jsonify(p)
+    return jsonify({"error": "Player not found"}), 404
+
+
+# ---------- API: Archetypes per player ----------
+
+@app.route("/api/players/<int:player_id>/archetypes", methods=["POST"])
+@login_required
+def api_add_player_archetype(player_id):
+    payload = request.get_json(silent=True) or {}
+    faction = (payload.get("faction") or "").strip()
+    role = (payload.get("role") or "").strip().lower()
+    comment = (payload.get("comment") or "").strip()
+
+    if not faction:
+        return jsonify({"error": "Faction is required"}), 400
+    if role not in ALLOWED_ARCHETYPE_ROLES:
+        return jsonify({"error": "Role must be defense, attack, or blunt"}), 400
+
+    players = load_players()
+    for p in players:
+        if p.get("id") == player_id:
+            archetypes = p.get("archetypes")
+            if not isinstance(archetypes, list):
+                archetypes = []
+                p["archetypes"] = archetypes
+            if len(archetypes) >= 3:
+                return jsonify({"error": "Maximum 3 archetypes per player"}), 400
+            archetypes.append({
+                "faction": faction,
+                "role": role,
+                "comment": comment
+            })
+            save_players(players)
+            return jsonify(p)
+
+    return jsonify({"error": "Player not found"}), 404
+
+
+@app.route("/api/players/<int:player_id>/archetypes/<int:arch_index>", methods=["DELETE"])
+@login_required
+def api_delete_player_archetype(player_id, arch_index):
+    players = load_players()
+    for p in players:
+        if p.get("id") == player_id:
+            archetypes = p.get("archetypes")
+            if not isinstance(archetypes, list):
+                return jsonify({"error": "No archetypes to delete"}), 400
+            if 0 <= arch_index < len(archetypes):
+                archetypes.pop(arch_index)
+                save_players(players)
+                return jsonify(p)
+            return jsonify({"error": "Archetype index out of range"}), 400
     return jsonify({"error": "Player not found"}), 404
 
 
