@@ -30,8 +30,14 @@ def slugify(s: str) -> str:
 TEAM_NAME = os.getenv("TEAM_NAME", "Embuscade")
 TEAM_SLUG = os.getenv("TEAM_SLUG", slugify(TEAM_NAME))
 
-# In container we always use /app/data (mounted from host)
-DATA_DIR = Path(os.getenv("DATA_DIR", "/app/data"))
+# In container we always use /app/data (mounted from host).
+# In local dev, fallback to repo ./data if /app/data doesn't exist.
+_env_data_dir = os.getenv("DATA_DIR")
+if _env_data_dir:
+    DATA_DIR = Path(_env_data_dir)
+else:
+    _container_dir = Path("/app/data")
+    DATA_DIR = _container_dir if _container_dir.exists() else (Path(__file__).resolve().parent / "data")
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
 PLAYERS_FILE = DATA_DIR / "players.json"

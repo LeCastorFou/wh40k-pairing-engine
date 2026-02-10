@@ -27,7 +27,9 @@
 
   let gPlayers = [];
   let gGames = [];
+  let gGamesSelectable = [];
   let gItems = [];
+  let gDrag = null;
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -93,7 +95,7 @@
     noneOpt.textContent = "No linked game";
     gameEl.appendChild(noneOpt);
 
-    gGames.forEach(g => {
+    gGamesSelectable.forEach(g => {
       const opt = document.createElement("option");
       opt.value = String(g.id);
       opt.textContent = `#${g.id} vs ${g.opponent_name}`;
@@ -154,12 +156,90 @@
       const dayCol = document.createElement("div");
       dayCol.className = "day-col";
       dayCol.dataset.day = dateKey(day);
+      dayCol.addEventListener("mousedown", (event) => {
+        if (event.button !== 0) return;
+        if (event.target.closest(".event-item")) return;
+        startDrag(dayCol, event);
+      });
       bodyEl.appendChild(dayCol);
     }
   }
 
   function minutesFromStart(date) {
     return (date.getHours() * 60 + date.getMinutes()) - (START_HOUR * 60);
+  }
+
+  function snapMinutes(offsetY) {
+    const raw = Math.max(0, Math.min(ROW_H * 24, offsetY));
+    const slotIndex = Math.round(raw / ROW_H);
+    return slotIndex * 30;
+  }
+
+  function minutesToTimeLabel(totalMinutes) {
+    const hour = Math.min(23, Math.floor(totalMinutes / 60));
+    const min = totalMinutes % 60;
+    return { hour, min };
+  }
+
+  function startDrag(dayCol, event) {
+    const rect = dayCol.getBoundingClientRect();
+    const startOffset = event.clientY - rect.top;
+    const startMinutes = snapMinutes(startOffset);
+    const ghost = document.createElement("div");
+    ghost.className = "event-item ghost";
+    ghost.style.left = "6px";
+    ghost.style.width = "calc(100% - 12px)";
+    ghost.style.setProperty("--event-bg", "var(--availability)");
+    dayCol.appendChild(ghost);
+
+    gDrag = {
+      dayCol,
+      startMinutes,
+      currentMinutes: startMinutes,
+      ghost
+    };
+
+    updateDrag(event);
+
+    document.addEventListener("mousemove", updateDrag);
+    document.addEventListener("mouseup", endDrag, { once: true });
+  }
+
+  function updateDrag(event) {
+    if (!gDrag) return;
+    const rect = gDrag.dayCol.getBoundingClientRect();
+    const offset = event.clientY - rect.top;
+    const mins = snapMinutes(offset);
+    gDrag.currentMinutes = mins;
+
+    const start = Math.min(gDrag.startMinutes, gDrag.currentMinutes);
+    const end = Math.max(gDrag.startMinutes, gDrag.currentMinutes + 30);
+    const top = (start / 30) * ROW_H;
+    const height = ((end - start) / 30) * ROW_H;
+    gDrag.ghost.style.top = `${top}px`;
+    gDrag.ghost.style.height = `${height}px`;
+  }
+
+  function endDrag() {
+    document.removeEventListener("mousemove", updateDrag);
+    if (!gDrag) return;
+
+    const start = Math.min(gDrag.startMinutes, gDrag.currentMinutes);
+    const end = Math.max(gDrag.startMinutes, gDrag.currentMinutes + 30);
+    const startTotal = START_HOUR * 60 + start;
+    const endTotal = Math.min((23 * 60) + 30, START_HOUR * 60 + end);
+
+    const dayStr = gDrag.dayCol.dataset.day;
+    const startTime = minutesToTimeLabel(startTotal);
+    const endTime = minutesToTimeLabel(endTotal);
+
+    dateEl.value = dayStr;
+    startEl.value = `${String(startTime.hour).padStart(2, "0")}:${String(startTime.min).padStart(2, "0")}`;
+    endEl.value = `${String(endTime.hour).padStart(2, "0")}:${String(endTime.min).padStart(2, "0")}`;
+    formStatusEl.textContent = "Slot prefilled from calendar drag.";
+
+    gDrag.ghost.remove();
+    gDrag = null;
   }
 
   function assignLanes(items) {
@@ -379,6 +459,7 @@
       ]);
       gPlayers = players;
       gGames = games;
+      gGamesSelectable = games.filter(g => !isGameFinished(g));
       gItems = items;
       populatePlayers();
       populateGames();
@@ -387,6 +468,21 @@
     } catch (err) {
       statusEl.textContent = `Error loading calendar: ${err.message}`;
     }
+  }
+
+  function isGameFinished(game) {
+    const pairings = Array.isArray(game.pairings) ? game.pairings : [];
+    const scores = pairings
+      .map(p => {
+        if (typeof p?.real_score === "number") return p.real_score;
+        if (typeof p?.real_score === "string" && p.real_score.trim() !== "") {
+          const parsed = parseInt(p.real_score, 10);
+          return Number.isNaN(parsed) ? null : parsed;
+        }
+        return null;
+      })
+      .filter(v => typeof v === "number");
+    return scores.length === 8;
   }
 
   async function saveItem() {
