@@ -131,12 +131,19 @@
       start: item.start,
       end: item.end,
       allDay: false,
+      classNames: [item.type],
       extendedProps: {
         type: item.type,
         player_id: item.player_id,
         game_id: item.game_id
       }
     };
+
+    if (item.type === "availability") {
+      event.backgroundColor = getCssVar("--availability", "#4db6ac");
+      event.borderColor = event.backgroundColor;
+      event.textColor = "#111";
+    }
 
     if (item.type === "pairing") {
       event.backgroundColor = pairingColor;
