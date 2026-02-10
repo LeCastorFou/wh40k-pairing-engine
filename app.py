@@ -3,7 +3,7 @@ from flask import session, redirect, url_for
 from functools import wraps
 from pathlib import Path
 import json
-from datetime import datetime, timedelta
+from datetime import datetime
 import os 
 import re
 import itertools
@@ -369,11 +369,6 @@ def api_create_calendar_item():
         return jsonify({"error": "end must be after start"}), 400
     if start_dt.date() != end_dt.date():
         return jsonify({"error": "start/end must be on the same day"}), 400
-
-    today = datetime.now().date()
-    max_day = today + timedelta(days=13)
-    if start_dt.date() < today or start_dt.date() > max_day:
-        return jsonify({"error": "Date must be within the next 14 days"}), 400
 
     if player_id is not None and not isinstance(player_id, int):
         return jsonify({"error": "player_id must be an integer"}), 400

@@ -1,12 +1,5 @@
 (() => {
-  const DAY_COUNT = 14;
-  const START_HOUR = 12;
-  const END_HOUR = 24;
-  const ROW_H = 28;
-
-  const headerEl = document.getElementById("calendar-header");
-  const bodyEl = document.getElementById("calendar-body");
-  const agendaEl = document.getElementById("agenda-list");
+  const calendarEl = document.getElementById("fc-calendar");
   const statusEl = document.getElementById("calendar-status");
   const formStatusEl = document.getElementById("form-status");
 
@@ -29,27 +22,19 @@
   let gGames = [];
   let gGamesSelectable = [];
   let gItems = [];
-  let gDrag = null;
-  let gSelection = null;
+  let gCalendar = null;
 
-  const today = new Date();
-  today.setHours(0, 0, 0, 0);
-  const maxDay = new Date(today);
-  maxDay.setDate(today.getDate() + (DAY_COUNT - 1));
+  function dateKeyLocal(d) {
+    const y = d.getFullYear();
+    const m = String(d.getMonth() + 1).padStart(2, "0");
+    const day = String(d.getDate()).padStart(2, "0");
+    return `${y}-${m}-${day}`;
+  }
 
-  const formatter = new Intl.DateTimeFormat(undefined, {
-    weekday: "short",
-    month: "short",
-    day: "numeric"
-  });
-
-  const timeFormatter = new Intl.DateTimeFormat(undefined, {
-    hour: "2-digit",
-    minute: "2-digit"
-  });
-
-  function dateKey(date) {
-    return date.toISOString().slice(0, 10);
+  function timeKeyLocal(d) {
+    const h = String(d.getHours()).padStart(2, "0");
+    const min = String(d.getMinutes()).padStart(2, "0");
+    return `${h}:${min}`;
   }
 
   function playerColor(player) {
@@ -62,16 +47,36 @@
     return `hsl(${hue}, 60%, 65%)`;
   }
 
-  function isoFromDateTime(dateStr, timeStr) {
-    return `${dateStr}T${timeStr}`;
+  function getCssVar(name, fallback) {
+    const val = getComputedStyle(document.documentElement).getPropertyValue(name).trim();
+    return val || fallback;
   }
 
-  function clampDateInput() {
-    dateEl.min = dateKey(today);
-    dateEl.max = dateKey(maxDay);
-    dateEl.value = dateKey(today);
-    startEl.value = "12:00";
-    endEl.value = "14:00";
+  const pairingColor = getCssVar("--pairing", "#ba68c8");
+  const gameColor = getCssVar("--game", "#ffd166");
+
+  function filteredItems() {
+    return gItems.filter(item => {
+      if (item.type === "availability" && !filterAvailability.checked) return false;
+      if (item.type === "pairing" && !filterPairing.checked) return false;
+      if (item.type === "game" && !filterGame.checked) return false;
+      return true;
+    });
+  }
+
+  function isGameFinished(game) {
+    const pairings = Array.isArray(game.pairings) ? game.pairings : [];
+    const scores = pairings
+      .map(p => {
+        if (typeof p?.real_score === "number") return p.real_score;
+        if (typeof p?.real_score === "string" && p.real_score.trim() !== "") {
+          const parsed = parseInt(p.real_score, 10);
+          return Number.isNaN(parsed) ? null : parsed;
+        }
+        return null;
+      })
+      .filter(v => typeof v === "number");
+    return scores.length === 8;
   }
 
   function populatePlayers() {
@@ -119,331 +124,96 @@
     }
   }
 
-  function buildCalendarFrame() {
-    headerEl.innerHTML = "";
-    bodyEl.innerHTML = "";
-
-    const headerBlank = document.createElement("div");
-    headerBlank.textContent = "Time";
-    headerEl.appendChild(headerBlank);
-
-    const startDate = new Date(today);
-    for (let i = 0; i < DAY_COUNT; i++) {
-      const day = new Date(startDate);
-      day.setDate(startDate.getDate() + i);
-      const cell = document.createElement("div");
-      cell.textContent = formatter.format(day);
-      cell.dataset.day = dateKey(day);
-      headerEl.appendChild(cell);
-    }
-
-    const timeCol = document.createElement("div");
-    timeCol.className = "time-col";
-    for (let hour = START_HOUR; hour <= END_HOUR; hour++) {
-      const label = document.createElement("div");
-      label.className = "time-label";
-      const labelTime = new Date(today);
-      labelTime.setHours(hour, 0, 0, 0);
-      label.textContent = timeFormatter.format(labelTime);
-      const offset = (hour - START_HOUR) * 2 * ROW_H;
-      label.style.top = `${offset}px`;
-      timeCol.appendChild(label);
-    }
-    bodyEl.appendChild(timeCol);
-
-    for (let i = 0; i < DAY_COUNT; i++) {
-      const day = new Date(startDate);
-      day.setDate(startDate.getDate() + i);
-      const dayCol = document.createElement("div");
-      dayCol.className = "day-col";
-      dayCol.dataset.day = dateKey(day);
-      dayCol.addEventListener("mousedown", (event) => {
-        if (event.button !== 0) return;
-        if (event.target.closest(".event-item")) return;
-        startDrag(dayCol, event);
-      });
-      bodyEl.appendChild(dayCol);
-    }
-  }
-
-  function minutesFromStart(date) {
-    return (date.getHours() * 60 + date.getMinutes()) - (START_HOUR * 60);
-  }
-
-  function snapMinutes(offsetY) {
-    const raw = Math.max(0, Math.min(ROW_H * 24, offsetY));
-    const slotIndex = Math.round(raw / ROW_H);
-    return slotIndex * 30;
-  }
-
-  function minutesToTimeLabel(totalMinutes) {
-    const hour = Math.min(23, Math.floor(totalMinutes / 60));
-    const min = totalMinutes % 60;
-    return { hour, min };
-  }
-
-  function startDrag(dayCol, event) {
-    clearSelection();
-    const rect = dayCol.getBoundingClientRect();
-    const startOffset = event.clientY - rect.top;
-    const startMinutes = snapMinutes(startOffset);
-    const ghost = document.createElement("div");
-    ghost.className = "event-item ghost";
-    ghost.style.left = "6px";
-    ghost.style.width = "calc(100% - 12px)";
-    ghost.style.setProperty("--event-bg", "var(--availability)");
-    dayCol.appendChild(ghost);
-
-    gDrag = {
-      dayCol,
-      startMinutes,
-      currentMinutes: startMinutes,
-      ghost
+  function mapItemToEvent(item) {
+    const event = {
+      id: String(item.id),
+      title: item.title || "Slot",
+      start: item.start,
+      end: item.end,
+      allDay: false,
+      extendedProps: {
+        type: item.type,
+        player_id: item.player_id,
+        game_id: item.game_id
+      }
     };
 
-    updateDrag(event);
-
-    document.addEventListener("mousemove", updateDrag);
-    document.addEventListener("mouseup", endDrag, { once: true });
-  }
-
-  function updateDrag(event) {
-    if (!gDrag) return;
-    const rect = gDrag.dayCol.getBoundingClientRect();
-    const offset = event.clientY - rect.top;
-    const mins = snapMinutes(offset);
-    gDrag.currentMinutes = mins;
-
-    const start = Math.min(gDrag.startMinutes, gDrag.currentMinutes);
-    const end = Math.max(gDrag.startMinutes, gDrag.currentMinutes + 30);
-    const top = (start / 30) * ROW_H;
-    const height = ((end - start) / 30) * ROW_H;
-    gDrag.ghost.style.top = `${top}px`;
-    gDrag.ghost.style.height = `${height}px`;
-  }
-
-  function endDrag() {
-    document.removeEventListener("mousemove", updateDrag);
-    if (!gDrag) return;
-
-    const start = Math.min(gDrag.startMinutes, gDrag.currentMinutes);
-    const end = Math.max(gDrag.startMinutes, gDrag.currentMinutes + 30);
-    const startTotal = START_HOUR * 60 + start;
-    const endTotal = Math.min((23 * 60) + 30, START_HOUR * 60 + end);
-
-    const dayStr = gDrag.dayCol.dataset.day;
-    const startTime = minutesToTimeLabel(startTotal);
-    const endTime = minutesToTimeLabel(endTotal);
-
-    dateEl.value = dayStr;
-    startEl.value = `${String(startTime.hour).padStart(2, "0")}:${String(startTime.min).padStart(2, "0")}`;
-    endEl.value = `${String(endTime.hour).padStart(2, "0")}:${String(endTime.min).padStart(2, "0")}`;
-    formStatusEl.textContent = "Slot prefilled from calendar drag.";
-
-    gDrag.ghost.classList.remove("ghost");
-    gDrag.ghost.classList.add("selection");
-    gSelection = gDrag.ghost;
-    gDrag = null;
-  }
-
-  function clearSelection() {
-    if (gSelection && gSelection.parentElement) {
-      gSelection.parentElement.removeChild(gSelection);
-    }
-    gSelection = null;
-  }
-
-  function assignLanes(items) {
-    const lanes = [];
-    const assigned = [];
-    items.forEach(item => {
-      const start = new Date(item.start);
-      const end = new Date(item.end);
-      let laneIndex = -1;
-      for (let i = 0; i < lanes.length; i++) {
-        if (start >= lanes[i]) {
-          laneIndex = i;
-          lanes[i] = end;
-          break;
-        }
-      }
-      if (laneIndex === -1) {
-        lanes.push(end);
-        laneIndex = lanes.length - 1;
-      }
-      assigned.push({ item, lane: laneIndex });
-    });
-    return { assigned, laneCount: lanes.length || 1 };
-  }
-
-  function filteredItems() {
-    return gItems.filter(item => {
-      if (item.type === "availability" && !filterAvailability.checked) return false;
-      if (item.type === "pairing" && !filterPairing.checked) return false;
-      if (item.type === "game" && !filterGame.checked) return false;
-      return true;
-    });
-  }
-
-  function renderCalendar() {
-    buildCalendarFrame();
-
-    const playersMap = new Map(gPlayers.map(p => [p.id, p]));
-    const gamesMap = new Map(gGames.map(g => [g.id, g]));
-    const items = filteredItems();
-
-    const dayMap = new Map();
-    items.forEach(item => {
-      const day = item.start.slice(0, 10);
-      if (!dayMap.has(day)) dayMap.set(day, []);
-      dayMap.get(day).push(item);
-    });
-
-    for (const [day, itemsForDay] of dayMap.entries()) {
-      const dayCol = bodyEl.querySelector(`.day-col[data-day="${day}"]`);
-      if (!dayCol) continue;
-
-      const sorted = itemsForDay.slice().sort((a, b) => a.start.localeCompare(b.start));
-      const { assigned, laneCount } = assignLanes(sorted);
-      const gap = 6;
-      const widthPct = 100 / laneCount;
-
-      assigned.forEach(({ item, lane }) => {
-        const start = new Date(item.start);
-        const end = new Date(item.end);
-        const top = minutesFromStart(start) / 30 * ROW_H;
-        const height = Math.max(1, (end - start) / (30 * 60 * 1000) * ROW_H);
-        const card = document.createElement("div");
-        card.className = `event-item ${item.type}`;
-        card.style.top = `${top}px`;
-        card.style.height = `${height}px`;
-        card.style.left = `calc(${lane * widthPct}% + ${gap / 2}px)`;
-        card.style.width = `calc(${widthPct}% - ${gap}px)`;
-
-        let meta = [];
-        if (item.type === "availability" && item.player_id) {
-          const player = playersMap.get(item.player_id);
-          if (player) {
-            const color = playerColor(player);
-            card.style.setProperty("--event-bg", color);
-            card.style.borderColor = "rgba(0,0,0,0.35)";
-            meta.push(player.name);
-          }
-        }
-        if (item.type === "pairing") {
-          card.style.setProperty("--event-bg", "var(--pairing)");
-        }
-        if (item.type === "game") {
-          card.style.setProperty("--event-bg", "var(--game)");
-        }
-        if (item.type === "game" && item.game_id) {
-          const game = gamesMap.get(item.game_id);
-          if (game) meta.push(`#${game.id} vs ${game.opponent_name}`);
-        }
-
-        const timeLabel = `${start.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - ${end.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
-        meta.unshift(timeLabel);
-
-        card.innerHTML = `
-          <div class="event-title">${item.title || "Slot"}</div>
-          <div class="event-meta">${meta.join(" · ")}</div>
-        `;
-
-        const delBtn = document.createElement("button");
-        delBtn.type = "button";
-        delBtn.textContent = "×";
-        delBtn.addEventListener("click", async (event) => {
-          event.stopPropagation();
-          if (!confirm("Delete this slot?")) return;
-          await deleteItem(item.id);
-        });
-        card.appendChild(delBtn);
-
-        dayCol.appendChild(card);
-      });
+    if (item.type === "pairing") {
+      event.backgroundColor = pairingColor;
+      event.borderColor = pairingColor;
+      event.textColor = "#111";
     }
 
-    const startLabel = formatter.format(today);
-    const endLabel = formatter.format(maxDay);
-    statusEl.textContent = `Showing ${startLabel} to ${endLabel} (${DAY_COUNT} days).`;
+    if (item.type === "game") {
+      event.backgroundColor = gameColor;
+      event.borderColor = gameColor;
+      event.textColor = "#111";
+    }
+
+    if (item.type === "availability" && item.player_id) {
+      const player = gPlayers.find(p => p.id === item.player_id);
+      if (player) {
+        const color = playerColor(player);
+        event.backgroundColor = color;
+        event.borderColor = color;
+        event.textColor = "#111";
+        event.title = `${player.name} · ${event.title}`;
+      }
+    }
+
+    return event;
   }
 
-  function renderAgenda() {
-    const playersMap = new Map(gPlayers.map(p => [p.id, p]));
-    const gamesMap = new Map(gGames.map(g => [g.id, g]));
-    const items = filteredItems().slice().sort((a, b) => a.start.localeCompare(b.start));
+  function refreshCalendarEvents() {
+    if (!gCalendar) return;
+    const events = filteredItems().map(mapItemToEvent);
+    gCalendar.removeAllEvents();
+    gCalendar.addEventSource(events);
+    statusEl.textContent = `${events.length} slot(s) visible.`;
+  }
 
-    const byDay = new Map();
-    items.forEach(item => {
-      const day = item.start.slice(0, 10);
-      if (!byDay.has(day)) byDay.set(day, []);
-      byDay.get(day).push(item);
+  function initCalendar() {
+    gCalendar = new FullCalendar.Calendar(calendarEl, {
+      initialView: "timeGridWeek",
+      headerToolbar: {
+        left: "prev,next today",
+        center: "title",
+        right: "dayGridMonth,timeGridWeek,timeGridDay,listWeek"
+      },
+      height: "auto",
+      nowIndicator: true,
+      selectable: true,
+      selectMirror: true,
+      unselectAuto: false,
+      slotMinTime: "12:00:00",
+      slotMaxTime: "24:00:00",
+      select: (info) => {
+        const start = info.start;
+        const end = info.end || info.start;
+        const isAllDay = info.allDay;
+
+        const dateStr = dateKeyLocal(start);
+        dateEl.value = dateStr;
+
+        if (isAllDay) {
+          startEl.value = "12:00";
+          endEl.value = "14:00";
+        } else {
+          startEl.value = timeKeyLocal(start);
+          endEl.value = timeKeyLocal(end);
+        }
+
+        formStatusEl.textContent = "Slot prefilled from calendar selection.";
+      },
+      eventClick: async (info) => {
+        const id = info.event.id;
+        if (!id) return;
+        if (!confirm("Delete this slot?")) return;
+        await deleteItem(id);
+      }
     });
 
-    agendaEl.innerHTML = "";
-
-    for (let i = 0; i < DAY_COUNT; i++) {
-      const dayDate = new Date(today);
-      dayDate.setDate(today.getDate() + i);
-      const key = dateKey(dayDate);
-      const dayItems = byDay.get(key) || [];
-
-      const block = document.createElement("div");
-      block.className = "list-day";
-      block.innerHTML = `<h3>${formatter.format(dayDate)}</h3>`;
-
-      if (!dayItems.length) {
-        const empty = document.createElement("div");
-        empty.className = "list-item";
-        empty.textContent = "No slots yet.";
-        block.appendChild(empty);
-      } else {
-        dayItems.forEach(item => {
-          const start = new Date(item.start);
-          const end = new Date(item.end);
-          const timeLabel = `${start.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} - ${end.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`;
-
-          let detail = [];
-          if (item.type === "availability" && item.player_id) {
-            const player = playersMap.get(item.player_id);
-            if (player) detail.push(player.name);
-          }
-          if (item.type === "game" && item.game_id) {
-            const game = gamesMap.get(item.game_id);
-            if (game) detail.push(`#${game.id} vs ${game.opponent_name}`);
-          }
-
-          const row = document.createElement("div");
-          row.className = "list-item";
-          if (item.type === "availability" && item.player_id) {
-            const player = playersMap.get(item.player_id);
-            if (player) {
-              const color = playerColor(player);
-              row.style.border = `1px solid ${color}`;
-            }
-          }
-          const typeLabel = item.type === "game" ? "planned match" : item.type;
-          row.innerHTML = `
-            <div>
-              <div>${item.title || "Slot"}</div>
-              <div style="color: var(--muted); font-size:0.7rem;">${timeLabel}${detail.length ? " · " + detail.join(" · ") : ""}</div>
-            </div>
-            <span class="pill ${item.type}">${typeLabel}</span>
-          `;
-          if (item.type === "availability" && item.player_id) {
-            const player = playersMap.get(item.player_id);
-            if (player) {
-              const pill = row.querySelector(".pill");
-              pill.style.background = playerColor(player);
-              pill.style.color = "#111";
-            }
-          }
-          block.appendChild(row);
-        });
-      }
-
-      agendaEl.appendChild(block);
-    }
+    gCalendar.render();
   }
 
   async function fetchJson(url, options = {}) {
@@ -474,26 +244,10 @@
       gItems = items;
       populatePlayers();
       populateGames();
-      renderCalendar();
-      renderAgenda();
+      refreshCalendarEvents();
     } catch (err) {
       statusEl.textContent = `Error loading calendar: ${err.message}`;
     }
-  }
-
-  function isGameFinished(game) {
-    const pairings = Array.isArray(game.pairings) ? game.pairings : [];
-    const scores = pairings
-      .map(p => {
-        if (typeof p?.real_score === "number") return p.real_score;
-        if (typeof p?.real_score === "string" && p.real_score.trim() !== "") {
-          const parsed = parseInt(p.real_score, 10);
-          return Number.isNaN(parsed) ? null : parsed;
-        }
-        return null;
-      })
-      .filter(v => typeof v === "number");
-    return scores.length === 8;
   }
 
   async function saveItem() {
@@ -513,8 +267,8 @@
       return;
     }
 
-    const startIso = isoFromDateTime(date, startTime);
-    const endIso = isoFromDateTime(date, endTime);
+    const startIso = `${date}T${startTime}`;
+    const endIso = `${date}T${endTime}`;
 
     const payload = {
       type,
@@ -535,7 +289,7 @@
       formStatusEl.textContent = "Slot saved.";
       titleEl.value = "";
       notesEl.value = "";
-      clearSelection();
+      if (gCalendar) gCalendar.unselect();
       await loadData();
     } catch (err) {
       formStatusEl.textContent = err.message;
@@ -560,28 +314,19 @@
     startEl.value = "12:00";
     endEl.value = "14:00";
     formStatusEl.textContent = "";
-    clearSelection();
     updateFormFields();
+    if (gCalendar) gCalendar.unselect();
   }
 
-  filterAvailability.addEventListener("change", () => {
-    renderCalendar();
-    renderAgenda();
-  });
-  filterPairing.addEventListener("change", () => {
-    renderCalendar();
-    renderAgenda();
-  });
-  filterGame.addEventListener("change", () => {
-    renderCalendar();
-    renderAgenda();
-  });
+  filterAvailability.addEventListener("change", refreshCalendarEvents);
+  filterPairing.addEventListener("change", refreshCalendarEvents);
+  filterGame.addEventListener("change", refreshCalendarEvents);
 
   typeEl.addEventListener("change", updateFormFields);
   saveBtn.addEventListener("click", saveItem);
   clearBtn.addEventListener("click", clearForm);
 
-  clampDateInput();
   updateFormFields();
+  initCalendar();
   loadData();
 })();

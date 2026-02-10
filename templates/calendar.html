@@ -17,14 +17,9 @@
       --accent: #ff6b3d;
       --accent-2: #ffa25d;
       --line: rgba(255,255,255,0.08);
-      --grid: rgba(255,255,255,0.06);
       --availability: #4db6ac;
       --pairing: #ba68c8;
       --game: #ffd166;
-      --row-h: 28px;
-      --rows: 24;
-      --calendar-h: calc(var(--row-h) * var(--rows));
-      --day-w: 150px;
     }
 
     body {
@@ -206,168 +201,69 @@
       background: var(--panel-2);
     }
 
-    .calendar {
+    #fc-calendar {
+      margin-top: 1rem;
       border: 1px solid var(--line);
       border-radius: 16px;
-      overflow: hidden;
-      background: rgba(5,5,8,0.96);
+      background: rgba(5,5,8,0.92);
+      padding: 0.6rem;
     }
 
-    .calendar-header {
-      display: grid;
-      grid-template-columns: 90px repeat(14, var(--day-w));
-      background: rgba(255,255,255,0.04);
-      border-bottom: 1px solid var(--line);
+    .fc {
+      color: var(--text);
+      font-size: 0.85rem;
     }
 
-    .calendar-header div {
-      padding: 0.6rem 0.4rem;
-      text-align: center;
-      font-size: 0.72rem;
-      letter-spacing: 0.18em;
+    .fc .fc-toolbar-title {
+      font-family: 'Playfair Display', serif;
+      letter-spacing: 0.08em;
       text-transform: uppercase;
-      color: var(--muted);
-      border-right: 1px solid var(--line);
+      font-size: 1.05rem;
+      color: var(--text);
     }
 
-    .calendar-header div:last-child { border-right: none; }
-
-    .calendar-body {
-      display: grid;
-      grid-template-columns: 90px repeat(14, var(--day-w));
-    }
-
-    .time-col {
-      position: relative;
-      height: var(--calendar-h);
-      border-right: 1px solid var(--line);
-      background: rgba(0,0,0,0.35);
-    }
-
-    .time-col .time-label {
-      position: absolute;
-      left: 10px;
-      font-size: 0.68rem;
-      color: var(--muted);
-      transform: translateY(-50%);
-    }
-
-    .day-col {
-      position: relative;
-      height: var(--calendar-h);
-      border-right: 1px solid var(--line);
-      background:
-        repeating-linear-gradient(
-          to bottom,
-          transparent,
-          transparent calc(var(--row-h) - 1px),
-          var(--grid) calc(var(--row-h) - 1px),
-          var(--grid) var(--row-h)
-        );
-      cursor: crosshair;
-    }
-
-    .day-col:last-child { border-right: none; }
-
-    .event-item {
-      position: absolute;
-      padding: 0.35rem 0.45rem;
-      border-radius: 10px;
-      color: #0f0f11;
-      font-size: 0.72rem;
-      line-height: 1.35;
-      box-shadow: 0 8px 18px rgba(0,0,0,0.35);
-      border: 1px solid rgba(0,0,0,0.2);
-      overflow: hidden;
-      background: var(--event-bg, #ddd);
-    }
-
-    .event-item.ghost {
-      opacity: 0.35;
-      box-shadow: none;
-      border-style: dashed;
-      pointer-events: none;
-    }
-
-    .event-item.selection {
-      opacity: 0.6;
-      box-shadow: 0 0 0 1px rgba(255,255,255,0.2) inset;
-      border-style: solid;
-      pointer-events: none;
-    }
-
-    .event-item .event-title {
-      font-weight: 600;
-      font-size: 0.72rem;
-    }
-
-    .event-item .event-meta {
-      font-size: 0.65rem;
-      opacity: 0.7;
-    }
-
-    .event-item button {
-      position: absolute;
-      top: 4px;
-      right: 4px;
-      border: none;
-      background: rgba(0,0,0,0.25);
-      color: #fff;
-      font-size: 0.6rem;
-      padding: 0 4px;
-      border-radius: 8px;
-      cursor: pointer;
-    }
-
-    .list-panel {
-      display: grid;
-      gap: 0.7rem;
-      margin-top: 1rem;
-    }
-
-    .list-day {
-      background: rgba(0,0,0,0.3);
-      border-radius: 12px;
-      border: 1px solid var(--line);
-      padding: 0.7rem 0.9rem;
-    }
-
-    .list-day h3 {
-      margin: 0 0 0.5rem;
-      font-size: 0.78rem;
-      letter-spacing: 0.18em;
-      text-transform: uppercase;
-      color: var(--muted);
-    }
-
-    .list-day .list-item {
-      display: flex;
-      justify-content: space-between;
-      gap: 0.6rem;
-      padding: 0.4rem 0.5rem;
-      border-radius: 10px;
-      background: rgba(255,255,255,0.04);
-      margin-bottom: 0.4rem;
-      font-size: 0.78rem;
-    }
-
-    .list-day .list-item:last-child { margin-bottom: 0; }
-
-    .pill {
-      display: inline-flex;
-      align-items: center;
-      gap: 0.35rem;
-      font-size: 0.65rem;
+    .fc .fc-button {
+      background: rgba(255,255,255,0.08);
+      border: 1px solid rgba(255,255,255,0.14);
+      color: var(--text);
       text-transform: uppercase;
       letter-spacing: 0.16em;
-      color: #fff;
-      padding: 0.15rem 0.45rem;
+      font-size: 0.68rem;
+      padding: 0.45rem 0.8rem;
       border-radius: 999px;
     }
 
-    .availability { background: var(--availability); }
-    .pairing { background: var(--pairing); }
-    .game { background: var(--game); }
+    .fc .fc-button-primary:not(:disabled).fc-button-active,
+    .fc .fc-button-primary:not(:disabled):active {
+      background: linear-gradient(135deg, #ff6b3d, #b83f1d);
+      border-color: transparent;
+    }
+
+    .fc .fc-button:focus {
+      box-shadow: none;
+    }
+
+    .fc .fc-col-header-cell-cushion,
+    .fc .fc-daygrid-day-number {
+      color: var(--muted);
+    }
+
+    .fc-theme-standard .fc-scrollgrid,
+    .fc-theme-standard td,
+    .fc-theme-standard th {
+      border-color: rgba(255,255,255,0.08);
+    }
+
+    .fc .fc-timegrid-slot {
+      height: 1.8em;
+    }
+
+    .fc .fc-event {
+      border-radius: 8px;
+      border: none;
+      padding: 0.15rem 0.25rem;
+      font-size: 0.72rem;
+    }
 
     .status {
       margin-top: 0.6rem;
@@ -378,22 +274,6 @@
     @media (max-width: 1100px) {
       .layout { grid-template-columns: 1fr; }
     }
-
-    @media (max-width: 900px) {
-      .calendar-header div {
-        font-size: 0.6rem;
-        letter-spacing: 0.12em;
-      }
-    }
-
-    .calendar {
-      overflow-x: auto;
-    }
-
-    .calendar-header,
-    .calendar-body {
-      width: calc(90px + (14 * var(--day-w)));
-    }
   </style>
 </head>
 <body>
@@ -401,7 +281,7 @@
     <div class="top-bar">
       <div class="title-block">
         <h1>Team Availability Calendar</h1>
-        <p>{{ team_name }} · 14-Day Window</p>
+        <p>{{ team_name }} · Multi-View</p>
       </div>
       <a class="back-link" href="{{ url_for('index') }}">Back to Command</a>
     </div>
@@ -409,7 +289,7 @@
     <div class="layout">
       <div>
         <div class="panel calendar-panel">
-          <h2>Two-Week Grid</h2>
+          <h2>Calendar Views</h2>
           <div class="legend">
             <span><b style="background: var(--availability);"></b>Availability (player color)</span>
             <span><b style="background: var(--pairing);"></b>Pairing Session</span>
@@ -420,16 +300,8 @@
             <label><input type="checkbox" id="filter-pairing" checked> Pairings</label>
             <label><input type="checkbox" id="filter-game" checked> Games</label>
           </div>
-          <div class="calendar" style="margin-top:1rem;">
-            <div class="calendar-header" id="calendar-header"></div>
-            <div class="calendar-body" id="calendar-body"></div>
-          </div>
+          <div id="fc-calendar"></div>
           <div class="status" id="calendar-status"></div>
-        </div>
-
-        <div class="panel" style="margin-top:1.4rem;">
-          <h2>Readable Agenda</h2>
-          <div class="list-panel" id="agenda-list"></div>
         </div>
       </div>
 
@@ -481,6 +353,7 @@
     </div>
   </div>
 
+  <script src="https://cdn.jsdelivr.net/npm/fullcalendar@6.1.20/index.global.min.js"></script>
   <script src="{{ url_for('static', filename='js/calendar.js') }}"></script>
 </body>
 </html>
