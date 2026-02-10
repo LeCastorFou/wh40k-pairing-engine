@@ -3,7 +3,7 @@ from flask import session, redirect, url_for
 from functools import wraps
 from pathlib import Path
 import json
-from datetime import datetime
+from datetime import datetime, timedelta
 import os 
 import re
 import itertools
@@ -37,6 +37,7 @@ DATA_DIR.mkdir(parents=True, exist_ok=True)
 PLAYERS_FILE = DATA_DIR / "players.json"
 GAMES_FILE = DATA_DIR / "games.json"
 SETTINGS_FILE = DATA_DIR / "settings.json"
+CALENDAR_FILE = DATA_DIR / "calendar.json"
 
 ALLOWED_MATRIX_STATES = {
     "GAMBLE", "UNKNOWN", "EASY", "WIN",
@@ -159,6 +160,31 @@ def save_settings(settings):
     with SETTINGS_FILE.open("w") as f:
         json.dump(settings, f, indent=2)
 
+def load_calendar_items():
+    if not CALENDAR_FILE.exists():
+        return []
+    try:
+        with CALENDAR_FILE.open() as f:
+            data = json.load(f)
+            if isinstance(data, dict):
+                items = data.get("items", [])
+            else:
+                items = data
+            return items if isinstance(items, list) else []
+    except json.JSONDecodeError:
+        return []
+
+def save_calendar_items(items):
+    DATA_DIR.mkdir(parents=True, exist_ok=True)
+    with CALENDAR_FILE.open("w") as f:
+        json.dump({"items": items}, f, indent=2)
+
+def next_calendar_id(items):
+    ids = [i.get("id") for i in items if isinstance(i, dict) and "id" in i]
+    if not ids:
+        return 1
+    return max(ids) + 1
+
 def send_discord_message(content: str):
     settings = load_settings()
     webhook = (settings.get("discord_webhook") or "").strip()
@@ -247,6 +273,11 @@ def team_management_page():
         webhook_url=settings.get("discord_webhook", "")
     )
 
+@app.route("/calendar")
+@login_required
+def calendar_page():
+    return render_template("calendar.html", team_name=TEAM_NAME)
+
 @app.route("/api/settings", methods=["GET"])
 @login_required
 def api_get_settings():
@@ -292,6 +323,89 @@ def api_send_custom_message():
     ok = send_discord_message(content)
     if not ok:
         return jsonify({"error": "Webhook request failed. Check server logs."}), 502
+    return jsonify({"status": "ok"})
+
+
+# ---------- API: Calendar ----------
+
+@app.route("/api/calendar", methods=["GET"])
+@login_required
+def api_get_calendar():
+    items = load_calendar_items()
+    # Sort by start time ascending
+    items_sorted = sorted(items, key=lambda i: i.get("start", ""))
+    return jsonify(items_sorted)
+
+@app.route("/api/calendar", methods=["POST"])
+@login_required
+def api_create_calendar_item():
+    payload = request.get_json(silent=True) or {}
+    item_type = (payload.get("type") or "").strip()
+    title = (payload.get("title") or "").strip()
+    notes = (payload.get("notes") or "").strip()
+    start_raw = (payload.get("start") or "").strip()
+    end_raw = (payload.get("end") or "").strip()
+    player_id = payload.get("player_id")
+    game_id = payload.get("game_id")
+
+    if item_type not in {"availability", "pairing", "game"}:
+        return jsonify({"error": "type must be availability, pairing, or game"}), 400
+    if not start_raw or not end_raw:
+        return jsonify({"error": "start and end are required"}), 400
+
+    try:
+        start_dt = datetime.fromisoformat(start_raw)
+        end_dt = datetime.fromisoformat(end_raw)
+    except ValueError:
+        return jsonify({"error": "start/end must be ISO-8601 datetime strings"}), 400
+
+    if end_dt <= start_dt:
+        return jsonify({"error": "end must be after start"}), 400
+    if start_dt.date() != end_dt.date():
+        return jsonify({"error": "start/end must be on the same day"}), 400
+
+    today = datetime.now().date()
+    max_day = today + timedelta(days=13)
+    if start_dt.date() < today or start_dt.date() > max_day:
+        return jsonify({"error": "Date must be within the next 14 days"}), 400
+
+    if player_id is not None and not isinstance(player_id, int):
+        return jsonify({"error": "player_id must be an integer"}), 400
+    if game_id is not None and not isinstance(game_id, int):
+        return jsonify({"error": "game_id must be an integer"}), 400
+
+    if not title:
+        if item_type == "availability":
+            title = "Availability"
+        elif item_type == "pairing":
+            title = "Pairing Session"
+        else:
+            title = "Game Slot"
+
+    items = load_calendar_items()
+    new_item = {
+        "id": next_calendar_id(items),
+        "type": item_type,
+        "title": title,
+        "notes": notes,
+        "start": start_dt.isoformat(timespec="minutes"),
+        "end": end_dt.isoformat(timespec="minutes"),
+        "player_id": player_id,
+        "game_id": game_id,
+        "created_at": datetime.now().isoformat(timespec="seconds"),
+    }
+    items.append(new_item)
+    save_calendar_items(items)
+    return jsonify(new_item), 201
+
+@app.route("/api/calendar/<int:item_id>", methods=["DELETE"])
+@login_required
+def api_delete_calendar_item(item_id):
+    items = load_calendar_items()
+    new_items = [i for i in items if i.get("id") != item_id]
+    if len(new_items) == len(items):
+        return jsonify({"error": "Calendar item not found"}), 404
+    save_calendar_items(new_items)
     return jsonify({"status": "ok"})
 
 
