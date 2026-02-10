@@ -30,6 +30,7 @@
   let gGamesSelectable = [];
   let gItems = [];
   let gDrag = null;
+  let gSelection = null;
 
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -182,6 +183,7 @@
   }
 
   function startDrag(dayCol, event) {
+    clearSelection();
     const rect = dayCol.getBoundingClientRect();
     const startOffset = event.clientY - rect.top;
     const startMinutes = snapMinutes(startOffset);
@@ -238,8 +240,17 @@
     endEl.value = `${String(endTime.hour).padStart(2, "0")}:${String(endTime.min).padStart(2, "0")}`;
     formStatusEl.textContent = "Slot prefilled from calendar drag.";
 
-    gDrag.ghost.remove();
+    gDrag.ghost.classList.remove("ghost");
+    gDrag.ghost.classList.add("selection");
+    gSelection = gDrag.ghost;
     gDrag = null;
+  }
+
+  function clearSelection() {
+    if (gSelection && gSelection.parentElement) {
+      gSelection.parentElement.removeChild(gSelection);
+    }
+    gSelection = null;
   }
 
   function assignLanes(items) {
@@ -524,6 +535,7 @@
       formStatusEl.textContent = "Slot saved.";
       titleEl.value = "";
       notesEl.value = "";
+      clearSelection();
       await loadData();
     } catch (err) {
       formStatusEl.textContent = err.message;
@@ -548,6 +560,7 @@
     startEl.value = "12:00";
     endEl.value = "14:00";
     formStatusEl.textContent = "";
+    clearSelection();
     updateFormFields();
   }
 
