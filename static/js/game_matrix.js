@@ -55,6 +55,18 @@ function getPlayerName(player) {
 }
 
 function getPlayerDefaultListLabel(player) {
+  if (typeof player?.list_name === "string" && player.list_name.trim()) {
+    return player.list_name.trim();
+  }
+
+  if (Array.isArray(player?.list_names) && typeof player?.default_index === "number") {
+    const idx = player.default_index;
+    if (idx >= 0 && idx < player.list_names.length) {
+      const name = player.list_names[idx] || "";
+      if (name.trim()) return name.trim();
+    }
+  }
+
   // roster snapshot: list_text is already the default list (frozen)
   if (typeof player?.list_text === "string" && player.list_text.trim()) {
     const firstLine = player.list_text.split(/\r?\n/).find(l => l.trim().length > 0) || "Default list";
@@ -74,6 +86,16 @@ function getPlayerDefaultListLabel(player) {
     }
   }
   return defaultLabel || "No default list";
+}
+
+function getOpponentPlayerName(army, idx) {
+  const trimmed = (army?.player_name || "").trim();
+  return trimmed || `Opponent #${idx + 1}`;
+}
+
+function getOpponentFactionLabel(army, idx) {
+  const trimmed = (army?.faction || "").trim();
+  return trimmed || `Army #${idx + 1}`;
 }
 
 
@@ -265,10 +287,15 @@ function buildMatrixTable() {
     const headerDiv = document.createElement("div");
     headerDiv.className = "faction-header";
 
-    const nameSpan = document.createElement("span");
-    nameSpan.className = "faction-name";
-    nameSpan.textContent = army.faction || `Army #${idx + 1}`;
-    headerDiv.appendChild(nameSpan);
+    const playerSpan = document.createElement("div");
+    playerSpan.className = "opponent-player-name";
+    playerSpan.textContent = getOpponentPlayerName(army, idx);
+    headerDiv.appendChild(playerSpan);
+
+    const factionSpan = document.createElement("div");
+    factionSpan.className = "opponent-faction-name";
+    factionSpan.textContent = getOpponentFactionLabel(army, idx);
+    headerDiv.appendChild(factionSpan);
 
     const tooltip = document.createElement("div");
     tooltip.className = "faction-tooltip";
@@ -391,7 +418,7 @@ function renderRosterPicker() {
   gAllPlayers.forEach(p => {
     const row = document.createElement("label");
     row.style.display = "flex";
-    row.style.alignItems = "center";
+    row.style.alignItems = "flex-start";
     row.style.gap = "0.5rem";
     row.style.padding = "0.5rem 0.65rem";
     row.style.border = "1px solid rgba(255,255,255,0.10)";
@@ -416,12 +443,22 @@ function renderRosterPicker() {
       updateCountLabel();
     });
 
+    const meta = document.createElement("div");
+
     const name = document.createElement("div");
     name.textContent = p.name || `Player ${p.id}`;
     name.style.fontWeight = "500";
 
+    const sub = document.createElement("div");
+    sub.textContent = getPlayerDefaultListLabel(p);
+    sub.style.fontSize = "0.75rem";
+    sub.style.color = "#aaa";
+
+    meta.appendChild(name);
+    meta.appendChild(sub);
+
     row.appendChild(cb);
-    row.appendChild(name);
+    row.appendChild(meta);
     list.appendChild(row);
   });
 

@@ -64,7 +64,8 @@ function renderLists(player) {
     const tag = document.createElement("div");
     tag.className = "pill";
     tag.style.marginBottom = ".5rem";
-    tag.textContent = (typeof def === "number" && def === idx) ? "Default list" : `List #${idx+1}`;
+    const listName = (player.list_names?.[idx] || `List #${idx + 1}`).trim();
+    tag.textContent = (typeof def === "number" && def === idx) ? `Default list - ${listName}` : listName;
 
     const pre = document.createElement("pre");
     pre.style.margin = "0";

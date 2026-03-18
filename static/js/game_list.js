@@ -144,7 +144,11 @@ function renderGames(games) {
 
         const title = document.createElement("div");
         title.className = "army-title";
-        title.textContent = `#${idx + 1} – ${army.faction || "Unknown Faction"}`;
+        const playerName = (army.player_name || "").trim();
+        const faction = army.faction || "Unknown Faction";
+        title.textContent = playerName
+          ? `#${idx + 1} – ${playerName} · ${faction}`
+          : `#${idx + 1} – ${faction}`;
 
         const pre = document.createElement("pre");
         pre.textContent = army.list || "";

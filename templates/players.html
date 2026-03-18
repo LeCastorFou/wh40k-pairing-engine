@@ -270,41 +270,96 @@
       color: #888;
       font-style: italic;
     }
-    /* Expand/collapse long pre blocks */
-.pre-expand {
-  position: relative;
-}
 
-.pre-expand pre {
-  margin: 0;
-  white-space: pre-wrap;
-  word-break: break-word;
-  font-family: monospace;
-  font-size: 0.8rem;
-  color: #e0e0e0;
+    .modal-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.72);
+      display: none;
+      align-items: center;
+      justify-content: center;
+      padding: 1.25rem;
+      z-index: 50;
+    }
 
-  /* default collapsed */
-  max-height: 3.8em;          /* ~3 lines (close to ~100 chars visually) */
-  overflow: hidden;
-}
+    .modal-overlay.visible {
+      display: flex;
+    }
 
-.pre-expand.expanded pre {
-  max-height: none;
-}
+    .modal-card {
+      width: min(880px, 100%);
+      max-height: min(88vh, 900px);
+      overflow: auto;
+      background: linear-gradient(145deg, rgba(10,10,15,0.98), rgba(5,5,8,0.98));
+      border-radius: 16px;
+      border: 1px solid rgba(255,255,255,0.08);
+      box-shadow: 0 0 32px rgba(0,0,0,0.9);
+      padding: 1.2rem 1.25rem;
+    }
 
-.pre-toggle {
-  margin-top: 0.35rem;
-  font-size: 0.7rem;
-  color: #e57373;
-  cursor: pointer;
-  text-transform: uppercase;
-  letter-spacing: 0.12em;
-  user-select: none;
-}
+    .modal-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 1rem;
+      margin-bottom: 1rem;
+    }
 
-.pre-toggle:hover {
-  text-decoration: underline;
-}
+    .modal-head h3 {
+      margin: 0;
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
+      font-size: 1rem;
+    }
+
+    .modal-subtitle {
+      color: #aaa;
+      font-size: 0.82rem;
+      margin-top: 0.25rem;
+    }
+
+    .modal-close {
+      margin-left: 0;
+      padding: 0.35rem 0.9rem;
+      background: transparent;
+      box-shadow: none;
+      border: 1px solid rgba(255,255,255,0.14);
+      color: #ddd;
+    }
+
+    .modal-fields {
+      display: grid;
+      gap: 0.75rem;
+    }
+
+    .modal-fields label {
+      display: block;
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
+      color: #aaa;
+      margin-bottom: 0.25rem;
+    }
+
+    .modal-fields textarea {
+      min-height: 420px;
+    }
+
+    .modal-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 0.65rem;
+      margin-top: 1rem;
+      flex-wrap: wrap;
+    }
+
+    .modal-actions .ghost {
+      background: transparent;
+      box-shadow: none;
+      border: 1px solid rgba(255,255,255,0.14);
+      color: #ddd;
+      margin-left: 0;
+    }
 
   </style>
 </head>
@@ -313,7 +368,7 @@
     <div class="top-bar">
       <div class="title-block">
         <h1>Players &amp; Army Lists</h1>
-        <p>Track your commanders and their weapons of mass tabletop destruction.</p>
+        <p>Track your commanders, give each army list a name, and pick the right roster faster.</p>
       </div>
       <div>
         <a href="{{ url_for('index') }}" class="back-link">&larr; Back to Command Centre</a>
@@ -341,6 +396,34 @@
         </div>
       </div>
     </section>
+  </div>
+
+  <div id="list-modal" class="modal-overlay" aria-hidden="true">
+    <div class="modal-card">
+      <div class="modal-head">
+        <div>
+          <h3 id="list-modal-title">List</h3>
+          <div id="list-modal-subtitle" class="modal-subtitle"></div>
+        </div>
+        <button id="list-modal-close" class="modal-close" type="button">Close</button>
+      </div>
+
+      <div class="modal-fields">
+        <div>
+          <label for="list-modal-name">List name</label>
+          <input id="list-modal-name" type="text" placeholder="Ex: WTC Team List" />
+        </div>
+        <div>
+          <label for="list-modal-text">List text</label>
+          <textarea id="list-modal-text" placeholder="Paste or type an army list here..."></textarea>
+        </div>
+      </div>
+
+      <div class="modal-actions">
+        <button id="list-modal-cancel" class="ghost" type="button">Cancel</button>
+        <button id="list-modal-save" type="button">Save list</button>
+      </div>
+    </div>
   </div>
 
   <script src="{{ url_for('static', filename='js/players.js') }}"></script>

@@ -80,6 +80,23 @@ def default_list_text(player: dict):
         return lists[idx]
     return None
 
+def list_name_at(player: dict, index: int):
+    names = player.get("list_names") or []
+    if isinstance(index, int) and 0 <= index < len(names):
+        name = names[index]
+        if isinstance(name, str) and name.strip():
+            return name.strip()
+    return f"List #{index + 1}"
+
+def default_list_name(player: dict):
+    lists = player.get("lists") or []
+    idx = player.get("default_index")
+    if isinstance(idx, int) and 0 <= idx < len(lists):
+        return list_name_at(player, idx)
+    if lists:
+        return list_name_at(player, 0)
+    return "No default list"
+
 def login_required(view):
     @wraps(view)
     def wrapped(*args, **kwargs):
@@ -135,6 +152,18 @@ def normalize_players(players):
             continue
         if "archetypes" not in p or not isinstance(p.get("archetypes"), list):
             p["archetypes"] = []
+        if "lists" not in p or not isinstance(p.get("lists"), list):
+            p["lists"] = []
+        names = p.get("list_names")
+        if not isinstance(names, list):
+            names = []
+        normalized_names = []
+        for i, _ in enumerate(p["lists"]):
+            raw = names[i] if i < len(names) else ""
+            normalized_names.append(raw.strip() if isinstance(raw, str) and raw.strip() else f"List #{i + 1}")
+        p["list_names"] = normalized_names
+        if "default_index" not in p:
+            p["default_index"] = None
         if "active" not in p:
             if active_count < 8:
                 p["active"] = True
@@ -433,6 +462,7 @@ def api_add_player():
             "id": next_player_id(players),
             "name": name,
             "lists": [],
+            "list_names": [],
             "default_index": None,
             "archetypes": [],
             "active": False,   # NEW
@@ -486,14 +516,19 @@ def api_delete_player(player_id):
 @login_required
 def api_add_list(player_id):
     data = request.get_json()
+    name = data.get("name", "").strip()
     text = data.get("text", "").strip()
+    if not name:
+        return jsonify({"error": "List name is required"}), 400
     if not text:
         return jsonify({"error": "List text is required"}), 400
 
     players = load_players()
     for p in players:
         if p["id"] == player_id:
+            p.setdefault("list_names", [])
             p["lists"].append(text)
+            p["list_names"].append(name)
             # if it's the first list, make it default
             if p["default_index"] is None:
                 p["default_index"] = 0
@@ -508,6 +543,35 @@ def api_add_list(player_id):
     return jsonify({"error": "Player not found"}), 404
 
 
+@app.route("/api/players/<int:player_id>/lists/<int:list_index>", methods=["POST"])
+@login_required
+def api_update_list(player_id, list_index):
+    data = request.get_json(silent=True) or {}
+    name = (data.get("name") or "").strip()
+    text = (data.get("text") or "").strip()
+    if not name:
+        return jsonify({"error": "List name is required"}), 400
+    if not text:
+        return jsonify({"error": "List text is required"}), 400
+
+    players = load_players()
+    for p in players:
+        if p["id"] == player_id:
+            lists = p.get("lists") or []
+            if not (0 <= list_index < len(lists)):
+                return jsonify({"error": "List index out of range"}), 400
+
+            p.setdefault("list_names", [])
+            while len(p["list_names"]) < len(lists):
+                p["list_names"].append(f"List #{len(p['list_names']) + 1}")
+
+            p["lists"][list_index] = text
+            p["list_names"][list_index] = name
+            save_players(players)
+            return jsonify(p)
+    return jsonify({"error": "Player not found"}), 404
+
+
 @app.route("/api/players/<int:player_id>/lists/<int:list_index>", methods=["DELETE"])
 @login_required
 def api_delete_list(player_id, list_index):
@@ -516,6 +580,8 @@ def api_delete_list(player_id, list_index):
         if p["id"] == player_id:
             if 0 <= list_index < len(p["lists"]):
                 p["lists"].pop(list_index)
+                if isinstance(p.get("list_names"), list) and list_index < len(p["list_names"]):
+                    p["list_names"].pop(list_index)
                 # adjust default_index
                 if p["default_index"] is not None:
                     if list_index == p["default_index"]:
@@ -542,6 +608,30 @@ def api_set_default_list(player_id):
             if not (0 <= index < len(p["lists"])):
                 return jsonify({"error": "Index out of range"}), 400
             p["default_index"] = index
+            save_players(players)
+            return jsonify(p)
+    return jsonify({"error": "Player not found"}), 404
+
+
+@app.route("/api/players/<int:player_id>/lists/<int:list_index>/name", methods=["POST"])
+@login_required
+def api_set_list_name(player_id, list_index):
+    data = request.get_json(silent=True) or {}
+    name = (data.get("name") or "").strip()
+    if not name:
+        return jsonify({"error": "List name is required"}), 400
+
+    players = load_players()
+    for p in players:
+        if p["id"] == player_id:
+            lists = p.get("lists") or []
+            if not (0 <= list_index < len(lists)):
+                return jsonify({"error": "List index out of range"}), 400
+
+            p.setdefault("list_names", [])
+            while len(p["list_names"]) < len(lists):
+                p["list_names"].append(f"List #{len(p['list_names']) + 1}")
+            p["list_names"][list_index] = name
             save_players(players)
             return jsonify(p)
     return jsonify({"error": "Player not found"}), 404
@@ -619,20 +709,27 @@ def api_create_game():
         return jsonify({"error": "You must define between 1 and 8 armies"}), 400
 
     seen_factions = set()
+    normalized_armies = []
     for a in armies:
         faction = (a.get("faction") or "").strip()
         lst = (a.get("list") or "").strip()
+        player_name = (a.get("player_name") or "").strip()
         if not faction or not lst:
             return jsonify({"error": "Each army needs a faction and a list text"}), 400
         if faction in seen_factions:
             return jsonify({"error": "Each faction must be unique (no duplicates)"}), 400
         seen_factions.add(faction)
+        normalized_armies.append({
+            "player_name": player_name,
+            "faction": faction,
+            "list": lst,
+        })
 
     games = load_games()
     new_game = {
         "id": next_game_id(games),
         "opponent_name": opponent_name,
-        "armies": armies,
+        "armies": normalized_armies,
         "created_at": datetime.now().isoformat(timespec="seconds"),
     }
     games.append(new_game)
@@ -788,6 +885,7 @@ def api_save_game_pairings(game_id):
         return jsonify({"error": "Game not found"}), 404
 
     prev_pairings = game.get("pairings", []) if isinstance(game.get("pairings"), list) else []
+    prev_scenario = game.get("scenario")
 
     payload = request.get_json(silent=True) or {}
 
@@ -858,27 +956,72 @@ def api_save_game_pairings(game_id):
         roster_map = {p.get("id"): p.get("name") or f"Player {p.get('id')}" for p in players if isinstance(p, dict)}
 
     armies = game.get("armies", [])
-    summary_lines = []
-    for p in sorted(pairings, key=lambda x: x.get("game_no", 0)):
-        player_id = p.get("player_id")
-        army_index = p.get("army_index")
-        if player_id is None or army_index is None:
-            continue
+
+    def describe_pairing(pairing):
+        player_id = pairing.get("player_id")
+        army_index = pairing.get("army_index")
         player_name = roster_map.get(player_id, f"Player {player_id}")
-        if isinstance(army_index, int) and army_index < len(armies):
-            faction = armies[army_index].get("faction") or f"Army #{army_index + 1}"
+
+        if isinstance(army_index, int) and 0 <= army_index < len(armies):
+            army = armies[army_index]
+            opp_player = (army.get("player_name") or "").strip() or f"Opponent #{army_index + 1}"
+            faction = army.get("faction") or f"Army #{army_index + 1}"
         elif isinstance(army_index, int):
+            opp_player = f"Opponent #{army_index + 1}"
             faction = f"Army #{army_index + 1}"
         else:
+            opp_player = "Unknown opponent"
             faction = "Unknown Army"
-        layout_n = p.get("layout_n")
-        layout_text = f" · Layout #{layout_n}" if isinstance(layout_n, int) else ""
-        summary_lines.append(f"G{p.get('game_no')}: {player_name} vs {faction}{layout_text}")
 
-    summary_text = "\n".join(summary_lines) if summary_lines else "No matchups assigned yet."
-    send_discord_message(
-        f"Pairings saved vs **{opp}** (Scenario: {scenario_label}).\n{summary_text}"
-    )
+        return player_name, opp_player, faction
+
+    prev_by_game_no = {
+        p.get("game_no"): p for p in prev_pairings
+        if isinstance(p, dict) and isinstance(p.get("game_no"), int)
+    }
+
+    score_updates = []
+    structure_changed = scenario is not None and prev_scenario != scenario
+
+    for p in pairings:
+        if not isinstance(p, dict):
+            continue
+
+        game_no = p.get("game_no")
+        if not isinstance(game_no, int):
+            continue
+
+        prev = prev_by_game_no.get(game_no, {})
+        if (
+            p.get("player_id") != prev.get("player_id")
+            or p.get("army_index") != prev.get("army_index")
+            or p.get("layout_n") != prev.get("layout_n")
+        ):
+            structure_changed = True
+
+        new_score = p.get("real_score")
+        prev_score = prev.get("real_score")
+        if isinstance(new_score, int) and new_score != prev_score:
+            score_updates.append((p, prev_score))
+
+    if structure_changed and not score_updates:
+        summary_lines = []
+        for p in sorted(pairings, key=lambda x: x.get("game_no", 0)):
+            player_id = p.get("player_id")
+            army_index = p.get("army_index")
+            if player_id is None or army_index is None:
+                continue
+            player_name, opp_player, faction = describe_pairing(p)
+            layout_n = p.get("layout_n")
+            layout_text = f" · Layout #{layout_n}" if isinstance(layout_n, int) else ""
+            summary_lines.append(
+                f"G{p.get('game_no')}: {player_name} vs {opp_player} ({faction}){layout_text}"
+            )
+
+        summary_text = "\n".join(summary_lines) if summary_lines else "No matchups assigned yet."
+        send_discord_message(
+            f"Pairings saved vs **{opp}** (Scenario: {scenario_label}).\n{summary_text}"
+        )
 
     def count_scores(items):
         count = 0
@@ -890,21 +1033,26 @@ def api_save_game_pairings(game_id):
                 total += score
         return count, total
 
-    prev_count, _ = count_scores(prev_pairings)
-    new_count, new_total = count_scores(pairings)
-    if new_count > prev_count:
-        verdict = "—"
-        if new_count == 8:
+    _, new_total = count_scores(pairings)
+    for pairing, prev_score in score_updates:
+        game_no = pairing.get("game_no")
+        player_name, opp_player, faction = describe_pairing(pairing)
+        score = pairing.get("real_score")
+        action = "updated" if isinstance(prev_score, int) else "recorded"
+        extra = ""
+        scored_count, _ = count_scores(pairings)
+        if scored_count == 8:
             if new_total < 75:
                 verdict = "Loss"
             elif new_total <= 85:
                 verdict = "Draw"
             else:
                 verdict = "Win"
-        verdict_text = f" Verdict: {verdict}." if new_count == 8 else ""
+            extra = f" Team total: {new_total}/160 ({verdict})."
+
         send_discord_message(
-            f"Results updated vs **{opp}**: {new_count}/8 scores recorded. "
-            f"Total so far {new_total} / 160.{verdict_text}"
+            f"Result {action} vs **{opp}**: "
+            f"G{game_no} · {player_name} vs {opp_player} ({faction}) · Score {score}/20.{extra}"
         )
 
     return jsonify({
@@ -1089,6 +1237,7 @@ def api_set_game_roster(game_id):
         roster.append({
             "player_id": pid,
             "player_name": p.get("name") or f"Player {pid}",
+            "list_name": default_list_name(p),
             "list_text": default_list_text(p) or "No default list"
         })
 
@@ -1234,6 +1383,7 @@ def api_get_player(player_id):
         return jsonify({"error": "Player not found"}), 404
     # ensure fields exist
     p.setdefault("lists", [])
+    p.setdefault("list_names", [])
     p.setdefault("default_index", None)
     p.setdefault("active", False)
     p.setdefault("match_history", [])
@@ -1341,6 +1491,12 @@ def api_game_lists_pdf(game_id):
 
         return "(No list text)"
 
+    def get_default_list_name(player):
+        snap_name = player.get("list_name")
+        if isinstance(snap_name, str) and snap_name.strip():
+            return snap_name.strip()
+        return default_list_name(player)
+
     buffer = BytesIO()
     c = canvas.Canvas(buffer, pagesize=A4)
     width, height = A4
@@ -1356,6 +1512,7 @@ def api_game_lists_pdf(game_id):
 
     for p in roster_players:
         name = p.get("name") or f"Player {p.get('id')}"
+        list_name = get_default_list_name(p)
         list_text = get_default_list_text(p)
 
         # Page break if needed
@@ -1368,7 +1525,7 @@ def api_game_lists_pdf(game_id):
 
         # Player header
         c.setFont("Helvetica-Bold", 12)
-        c.drawString(left_margin, y, name)
+        c.drawString(left_margin, y, f"{name} - {list_name}")
         y -= 16
 
         # List text (monospace style)

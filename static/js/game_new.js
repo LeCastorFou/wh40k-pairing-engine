@@ -36,12 +36,25 @@ function createArmyCard(index) {
 
   const title = document.createElement("div");
   title.className = "army-title";
-  title.textContent = `Opponent Army #${index + 1}`;
+  title.textContent = `Opponent Slot #${index + 1}`;
   card.appendChild(title);
+
+  const playerLabel = document.createElement("label");
+  playerLabel.textContent = "Opponent Player";
+  playerLabel.style.marginBottom = "0.2rem";
+  card.appendChild(playerLabel);
+
+  const playerInput = document.createElement("input");
+  playerInput.type = "text";
+  playerInput.className = "player-name-input";
+  playerInput.dataset.index = index;
+  playerInput.placeholder = "Ex: Paul Martin";
+  card.appendChild(playerInput);
 
   // Faction select
   const factionLabel = document.createElement("label");
   factionLabel.textContent = "Codex / Faction";
+  factionLabel.style.marginTop = "0.5rem";
   factionLabel.style.marginBottom = "0.2rem";
   card.appendChild(factionLabel);
 
@@ -92,21 +105,23 @@ async function saveGame() {
 
   const selects = Array.from(document.querySelectorAll(".faction-select"));
   const texts = Array.from(document.querySelectorAll(".list-text"));
+  const playerNames = Array.from(document.querySelectorAll(".player-name-input"));
 
   const armies = [];
   const usedFactions = new Set();
 
   for (let i = 0; i < selects.length; i++) {
+    const playerName = playerNames[i].value.trim();
     const faction = selects[i].value.trim();
     const listText = texts[i].value.trim();
 
-    if (!faction && !listText) {
+    if (!playerName && !faction && !listText) {
       // Empty slot, ignore
       continue;
     }
 
-    if (!faction || !listText) {
-      statusEl.textContent = `Slot #${i + 1}: you must choose a faction AND paste a list, or leave it fully empty.`;
+    if (!playerName || !faction || !listText) {
+      statusEl.textContent = `Slot #${i + 1}: you must enter an opponent player, choose a faction, and paste a list, or leave it fully empty.`;
       statusEl.classList.add("error");
       return;
     }
@@ -118,7 +133,7 @@ async function saveGame() {
     }
 
     usedFactions.add(faction);
-    armies.push({ faction, list: listText });
+    armies.push({ player_name: playerName, faction, list: listText });
   }
 
   if (armies.length === 0) {

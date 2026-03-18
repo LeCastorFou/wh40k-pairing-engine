@@ -64,6 +64,10 @@ let gLayouts = {};        // scenarioKey -> [{n, file}, ...]
 let gDirtyPairings = false;
 let gActiveSlot = null;
 let gScenario = null;
+let gAutoSaveTimer = null;
+let gSaveInFlight = false;
+let gSaveQueued = false;
+const AUTO_SAVE_DELAY_MS = 700;
 
 /* =========================
    Utilities
@@ -80,6 +84,18 @@ function getPlayerName(player) {
 }
 
 function getPlayerListLabel(player) {
+  if (typeof player?.list_name === "string" && player.list_name.trim()) {
+    return player.list_name.trim();
+  }
+
+  if (Array.isArray(player?.list_names) && typeof player?.default_index === "number") {
+    const idx = player.default_index;
+    if (idx >= 0 && idx < player.list_names.length) {
+      const name = player.list_names[idx] || "";
+      if (name.trim()) return name.trim();
+    }
+  }
+
   // roster snapshot: frozen list_text
   if (typeof player?.list_text === "string" && player.list_text.trim()) {
     const firstLine = player.list_text.split(/\r?\n/).find(l => l.trim().length > 0) || "Default list";
@@ -99,6 +115,16 @@ function getPlayerListLabel(player) {
     }
   }
   return defaultLabel || "No default list";
+}
+
+function getOpponentPlayerName(army, idx) {
+  const trimmed = (army?.player_name || "").trim();
+  return trimmed || `Opponent #${idx + 1}`;
+}
+
+function getOpponentFactionLabel(army, idx) {
+  const trimmed = (army?.faction || "").trim();
+  return trimmed || `Army #${idx + 1}`;
 }
 
 function setFightStatus(text, mode = "normal") {
@@ -123,6 +149,23 @@ function markPairingsDirty() {
   const btn = document.getElementById("fight-save-btn");
   if (btn) btn.disabled = false;
   setFightStatus("Pairings not saved.", "unsaved");
+  scheduleAutoSave();
+}
+
+function scheduleAutoSave() {
+  if (gAutoSaveTimer) clearTimeout(gAutoSaveTimer);
+  gAutoSaveTimer = setTimeout(() => {
+    gAutoSaveTimer = null;
+    savePairings({ auto: true });
+  }, AUTO_SAVE_DELAY_MS);
+}
+
+function normalizeRealScore(rawValue) {
+  const v = rawValue.trim();
+  if (v === "") return null;
+  const parsed = parseInt(v, 10);
+  if (Number.isNaN(parsed)) return null;
+  return Math.max(0, Math.min(20, parsed));
 }
 
 function applyStateVisual(cellInner, stateKey) {
@@ -319,10 +362,15 @@ function buildMatrixTable() {
     const headerDiv = document.createElement("div");
     headerDiv.className = "faction-header";
 
-    const nameSpan = document.createElement("span");
-    nameSpan.className = "faction-name";
-    nameSpan.textContent = army.faction || `Army #${idx + 1}`;
-    headerDiv.appendChild(nameSpan);
+    const playerSpan = document.createElement("div");
+    playerSpan.className = "opponent-player-name";
+    playerSpan.textContent = getOpponentPlayerName(army, idx);
+    headerDiv.appendChild(playerSpan);
+
+    const factionSpan = document.createElement("div");
+    factionSpan.className = "opponent-faction-name";
+    factionSpan.textContent = getOpponentFactionLabel(army, idx);
+    headerDiv.appendChild(factionSpan);
 
     const tooltip = document.createElement("div");
     tooltip.className = "faction-tooltip";
@@ -578,7 +626,8 @@ function refreshGameCards() {
     listSpan.textContent = `(${listLabel})`;
 
     const aSpan = document.createElement("span");
-    aSpan.textContent = "vs " + (army?.faction || `Army #${slot.army_index + 1}`);
+    aSpan.textContent =
+      "vs " + getOpponentPlayerName(army, slot.army_index) + " (" + getOpponentFactionLabel(army, slot.army_index) + ")";
 
     const key = `${slot.player_id}-${slot.army_index}`;
     const stateKey = gMatrixStates[key] || "NONE";
@@ -661,7 +710,7 @@ function refreshSummaryTable() {
 
     const tdArmy = document.createElement("td");
     const army = gArmies[slot.army_index];
-    tdArmy.textContent = army?.faction || `Army #${slot.army_index + 1}`;
+    tdArmy.textContent = `${getOpponentPlayerName(army, slot.army_index)} (${getOpponentFactionLabel(army, slot.army_index)})`;
     tr.appendChild(tdArmy);
 
     const tdScenario = document.createElement("td");
@@ -711,13 +760,20 @@ function refreshSummaryTable() {
     input.style.color = "#f5f5f5";
     input.style.padding = "0.25rem 0.45rem";
 
-    input.addEventListener("change", () => {
-      const v = input.value.trim();
-      slot.real_score = v === "" ? null : Math.max(0, Math.min(20, parseInt(v, 10)));
+    const handleScoreInput = () => {
+      slot.real_score = normalizeRealScore(input.value);
+      markPairingsDirty();
+    };
+
+    const handleScoreChange = () => {
+      slot.real_score = normalizeRealScore(input.value);
       input.value = (slot.real_score === null) ? "" : String(slot.real_score);
       markPairingsDirty();
       refreshSummaryTable();
-    });
+    };
+
+    input.addEventListener("input", handleScoreInput);
+    input.addEventListener("change", handleScoreChange);
 
     tdReal.appendChild(input);
     tr.appendChild(tdReal);
@@ -832,12 +888,23 @@ function assignPairingToSlot(gameNo, playerId, armyIndex) {
    Save / Reset
    ========================= */
 
-async function savePairings() {
+async function savePairings(options = {}) {
+  const { auto = false } = options;
   if (!gDirtyPairings) return;
+  if (gSaveInFlight) {
+    gSaveQueued = true;
+    return;
+  }
+
+  if (gAutoSaveTimer) {
+    clearTimeout(gAutoSaveTimer);
+    gAutoSaveTimer = null;
+  }
 
   const btn = document.getElementById("fight-save-btn");
   if (btn) btn.disabled = true;
   setFightStatus("Saving...");
+  gSaveInFlight = true;
 
   try {
     const res = await fetch(`/api/games/${window.GAME_ID}/pairings`, {
@@ -850,17 +917,24 @@ async function savePairings() {
     if (!res.ok) {
       console.error(data);
       setFightStatus(data.error || "Error saving pairings.", "error");
-      if (btn) btn.disabled = false;
       return;
     }
 
     gDirtyPairings = false;
-    setFightStatus("Pairings saved.", "saved");
+    setFightStatus(auto ? "Changes auto-saved." : "Pairings saved.", "saved");
     refreshSummaryTable();
   } catch (err) {
     console.error(err);
     setFightStatus("Network or server error while saving.", "error");
+  } finally {
+    gSaveInFlight = false;
     if (btn) btn.disabled = false;
+    if (gSaveQueued && gDirtyPairings) {
+      gSaveQueued = false;
+      savePairings({ auto: true });
+    } else {
+      gSaveQueued = false;
+    }
   }
 }
 
@@ -888,6 +962,7 @@ function resetPairings() {
 
   setFightStatus("Pairings reset. Pick Game 1 and start again.", "unsaved");
   setActiveSlot(1);
+  scheduleAutoSave();
 }
 
 /* =========================
@@ -950,7 +1025,7 @@ async function loadFightData() {
 
 document.addEventListener("DOMContentLoaded", async () => {
   const saveBtn = document.getElementById("fight-save-btn");
-  if (saveBtn) saveBtn.addEventListener("click", savePairings);
+  if (saveBtn) saveBtn.addEventListener("click", () => savePairings({ auto: false }));
 
   const resetBtn = document.getElementById("fight-reset-btn");
   if (resetBtn) resetBtn.addEventListener("click", resetPairings);
