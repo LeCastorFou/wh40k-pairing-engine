@@ -1,0 +1,19 @@
+services:
+  pairing:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    expose:
+      - "5000"
+    environment:
+      FLASK_APP: app.py
+      FLASK_ENV: production
+      FLASK_DEBUG: "0"
+      TEAM_NAME: ${TEAM_NAME:-Embuscade}
+      TEAM_SLUG: ${TEAM_SLUG:-embuscade}
+      TEAM_PASSWORD: ${TEAM_PASSWORD:-embu}
+      FLASK_SECRET_KEY: ${FLASK_SECRET_KEY:-embukey}
+      DATA_DIR: /app/data
+    volumes:
+      - /srv/test/${TEAM_SLUG:-embuscade}:/app/data
+    restart: unless-stopped
