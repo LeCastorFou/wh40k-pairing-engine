@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Admin Panel - 40K Pairing</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700&family=Roboto:wght@300;400;500&display=swap');
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: 'Roboto', sans-serif;
+      background: radial-gradient(circle at top, #333 0, #050509 50%, #000 100%);
+      color: #f5f5f5;
+      padding: 2rem;
+      line-height: 1.5;
+    }
+
+    a {
+      color: #e57373;
+      text-decoration: none;
+    }
+
+    a:hover { text-decoration: underline; }
+
+    .layout {
+      max-width: 1180px;
+      margin: 0 auto;
+    }
+
+    .top-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 1rem;
+      margin-bottom: 1.5rem;
+      flex-wrap: wrap;
+    }
+
+    .title-block h1 {
+      margin: 0;
+      font-family: 'Cinzel', serif;
+      font-size: 1.7rem;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+    }
+
+    .title-block p {
+      margin: 0.3rem 0 0;
+      color: #bbb;
+      font-size: 0.85rem;
+    }
+
+    .back-link {
+      font-size: 0.85rem;
+      text-transform: uppercase;
+      letter-spacing: 0.16em;
+    }
+
+    .summary-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 0.85rem;
+      margin-bottom: 1rem;
+    }
+
+    .metric {
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 10px;
+      background: rgba(10,10,15,0.92);
+      padding: 0.9rem 1rem;
+      box-shadow: 0 0 22px rgba(0,0,0,0.75);
+    }
+
+    .metric span {
+      display: block;
+      color: #aaa;
+      font-size: 0.74rem;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+    }
+
+    .metric strong {
+      display: block;
+      margin-top: 0.2rem;
+      font-size: 1.4rem;
+      font-weight: 500;
+    }
+
+    .panel {
+      background: linear-gradient(145deg, rgba(10,10,15,0.96), rgba(5,5,8,0.98));
+      border-radius: 14px;
+      border: 1px solid rgba(255,255,255,0.06);
+      padding: 1.25rem 1.5rem;
+      box-shadow: 0 0 28px rgba(0,0,0,0.85);
+      position: relative;
+      overflow: hidden;
+      margin-bottom: 1.2rem;
+    }
+
+    .panel::before {
+      content: "";
+      position: absolute;
+      inset: -40%;
+      background:
+        radial-gradient(circle at 0% 0%, rgba(255,0,0,0.1), transparent 60%),
+        radial-gradient(circle at 100% 100%, rgba(255,255,255,0.04), transparent 55%);
+      opacity: 0.4;
+      pointer-events: none;
+    }
+
+    .panel-inner {
+      position: relative;
+      z-index: 1;
+    }
+
+    .panel-head {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 1rem;
+      margin-bottom: 0.95rem;
+      flex-wrap: wrap;
+    }
+
+    h2 {
+      margin: 0;
+      font-size: 1rem;
+      text-transform: uppercase;
+      letter-spacing: 0.18em;
+      font-weight: 500;
+    }
+
+    .hint {
+      margin-top: 0.3rem;
+      color: #aaa;
+      font-size: 0.82rem;
+    }
+
+    .status {
+      min-height: 1.2rem;
+      color: #bbb;
+      font-size: 0.82rem;
+    }
+
+    .status.error { color: #ff8a80; }
+    .status.success { color: #a5d6a7; }
+
+    .entity-list {
+      display: grid;
+      gap: 0.75rem;
+    }
+
+    .entity-row {
+      display: grid;
+      grid-template-columns: minmax(240px, 1fr) minmax(320px, 0.95fr);
+      gap: 0.9rem;
+      align-items: center;
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 10px;
+      background: rgba(7,7,10,0.88);
+      padding: 0.85rem;
+    }
+
+    .entity-title {
+      display: flex;
+      gap: 0.5rem;
+      align-items: baseline;
+      flex-wrap: wrap;
+      color: #fff;
+      font-size: 0.95rem;
+      letter-spacing: 0.04em;
+    }
+
+    .entity-title strong {
+      font-weight: 500;
+    }
+
+    .muted {
+      color: #999;
+      font-size: 0.78rem;
+    }
+
+    .meta {
+      margin-top: 0.25rem;
+      color: #aaa;
+      font-size: 0.78rem;
+    }
+
+    .entity-actions {
+      display: grid;
+      grid-template-columns: minmax(160px, 1fr) auto auto;
+      gap: 0.55rem;
+      align-items: center;
+    }
+
+    input[type="text"] {
+      width: 100%;
+      background: #111;
+      border: 1px solid #444;
+      border-radius: 999px;
+      padding: 0.55rem 0.85rem;
+      color: #f5f5f5;
+      font-size: 0.9rem;
+      outline: none;
+    }
+
+    input[type="text"]:focus { border-color: #e74c3c; }
+
+    button {
+      background: linear-gradient(135deg, #b71c1c, #6d0000);
+      color: #f5f5f5;
+      border: 1px solid rgba(255,255,255,0.18);
+      border-radius: 999px;
+      padding: 0.5rem 0.95rem;
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
+      cursor: pointer;
+      box-shadow: 0 0 12px rgba(255,0,0,0.25);
+      transition: transform 0.08s ease-out, box-shadow 0.08s ease-out;
+      white-space: nowrap;
+    }
+
+    button:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 0 20px rgba(255,0,0,0.35);
+    }
+
+    button.secondary {
+      background: transparent;
+      box-shadow: none;
+      border-color: rgba(255,255,255,0.18);
+      color: #ddd;
+    }
+
+    button.danger {
+      border-color: rgba(255,138,128,0.4);
+      color: #ffcdd2;
+    }
+
+    button:disabled {
+      opacity: 0.45;
+      cursor: default;
+      box-shadow: none;
+      transform: none;
+    }
+
+    .membership-list {
+      grid-column: 1 / -1;
+      display: grid;
+      gap: 0.45rem;
+      margin-top: 0.1rem;
+    }
+
+    .membership-row {
+      display: flex;
+      justify-content: space-between;
+      gap: 0.75rem;
+      align-items: center;
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 8px;
+      padding: 0.55rem 0.65rem;
+      background: rgba(255,255,255,0.025);
+      color: #ccc;
+      font-size: 0.82rem;
+    }
+
+    .empty {
+      color: #888;
+      font-size: 0.86rem;
+      font-style: italic;
+    }
+
+    @media (max-width: 860px) {
+      body { padding: 1.2rem; }
+      .entity-row { grid-template-columns: 1fr; }
+      .entity-actions { grid-template-columns: 1fr; }
+      .membership-row { align-items: flex-start; flex-direction: column; }
+      button { width: 100%; }
+    }
+  </style>
+</head>
+<body>
+  <div class="layout">
+    <div class="top-bar">
+      <div class="title-block">
+        <h1>Admin Panel</h1>
+        <p>Restricted to {{ admin_email }}. Manage app users, teams, and memberships.</p>
+      </div>
+      <div>
+        <a href="{{ url_for('index') }}" class="back-link">&larr; Back to Command Centre</a>
+      </div>
+    </div>
+
+    <div class="summary-grid" id="summary-grid"></div>
+
+    <section class="panel">
+      <div class="panel-inner">
+        <div class="panel-head">
+          <div>
+            <h2>Teams</h2>
+            <div class="hint">Renaming a team also updates its URL slug. Deleting a team removes its players, games, calendar, settings, and memberships.</div>
+          </div>
+          <div id="teams-status" class="status"></div>
+        </div>
+        <div class="entity-list" id="teams-list"></div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-inner">
+        <div class="panel-head">
+          <div>
+            <h2>App Users</h2>
+            <div class="hint">Renaming a user updates their display name and linked player names. Deleting an app user removes their app profile and team access, but not the Supabase Auth account.</div>
+          </div>
+          <div id="users-status" class="status"></div>
+        </div>
+        <div class="entity-list" id="users-list"></div>
+      </div>
+    </section>
+  </div>
+
+  <script>
+    window.ADMIN_EMAIL = {{ admin_email | tojson }};
+  </script>
+  <script src="{{ url_for('static', filename='js/admin.js') }}"></script>
+</body>
+</html>

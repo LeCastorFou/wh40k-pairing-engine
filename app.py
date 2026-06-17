@@ -1,6 +1,6 @@
 from flask import Flask, render_template, request, jsonify, send_from_directory,send_file
-from flask import session, redirect, url_for
-from functools import wraps
+from flask import session, redirect, url_for, g
+from functools import lru_cache, wraps
 from pathlib import Path
 import json
 from datetime import datetime
@@ -13,13 +13,39 @@ from urllib.request import Request, urlopen
 from urllib.error import URLError, HTTPError
 from reportlab.lib.pagesizes import A4
 from reportlab.pdfgen import canvas
+from dotenv import load_dotenv
+from scripts.optimisation import TeamPairingSolver, other_of_pair
+from supabase_backend import (
+    admin_delete_membership,
+    admin_delete_profile,
+    admin_delete_team,
+    admin_overview,
+    admin_rename_profile,
+    admin_rename_team,
+    create_team,
+    ensure_profile,
+    get_auth_context,
+    get_supabase_client,
+    join_team,
+    list_public_teams,
+    load_calendar_items as db_load_calendar_items,
+    load_game as db_load_game,
+    load_games as db_load_games,
+    load_players as db_load_players,
+    load_settings as db_load_settings,
+    next_public_id,
+    save_calendar_items as db_save_calendar_items,
+    save_games as db_save_games,
+    save_players as db_save_players,
+    save_settings as db_save_settings,
+    select_membership,
+)
 
+load_dotenv(Path(__file__).resolve().parent / ".env")
 
 app = Flask(__name__)
 
 app.secret_key = os.getenv("FLASK_SECRET_KEY", "dev-secret-change-me")
-
-TEAM_PASSWORD = os.getenv("TEAM_PASSWORD", "embu")
 
 def slugify(s: str) -> str:
     s = (s or "").strip().lower()
@@ -29,6 +55,7 @@ def slugify(s: str) -> str:
 
 TEAM_NAME = os.getenv("TEAM_NAME", "Embuscade")
 TEAM_SLUG = os.getenv("TEAM_SLUG", slugify(TEAM_NAME))
+ADMIN_EMAIL = os.getenv("ADMIN_EMAIL", "valent1lefranc@gmail.com").strip().lower()
 
 # In container we always use /app/data (mounted from host).
 # In local dev, fallback to repo ./data if /app/data doesn't exist.
@@ -40,11 +67,6 @@ else:
     DATA_DIR = _container_dir if _container_dir.exists() else (Path(__file__).resolve().parent / "data")
 DATA_DIR.mkdir(parents=True, exist_ok=True)
 
-PLAYERS_FILE = DATA_DIR / "players.json"
-GAMES_FILE = DATA_DIR / "games.json"
-SETTINGS_FILE = DATA_DIR / "settings.json"
-CALENDAR_FILE = DATA_DIR / "calendar.json"
-
 ALLOWED_MATRIX_STATES = {
     "GAMBLE", "UNKNOWN", "EASY", "WIN",
     "S_WIN", "S_LOOSE", "LOOSE", "HELP"
@@ -53,15 +75,31 @@ ALLOWED_MATRIX_STATES = {
 ALLOWED_ARCHETYPE_ROLES = {"defense", "attack", "blunt"}
 
 
+PAIRING_SCORE_MAP = {
+    "grosse_defaite": 0.0,
+    "defaite": 5.0,
+    "petite_defaite": 8.0,
+    "petite_victoire": 12.0,
+    "victoire": 15.0,
+    "grosse_victoire": 20.0,
+}
+
 STATE_TO_SCORE = {
-    "HELP": 3.0,
-    "LOOSE": 6.5,
-    "S_LOOSE": 9.0,
-    "S_WIN": 11.0,
-    "WIN": 13.5,
-    "EASY": 16.0,
+    "HELP": PAIRING_SCORE_MAP["grosse_defaite"],
+    "LOOSE": PAIRING_SCORE_MAP["defaite"],
+    "S_LOOSE": PAIRING_SCORE_MAP["petite_defaite"],
+    "S_WIN": PAIRING_SCORE_MAP["petite_victoire"],
+    "WIN": PAIRING_SCORE_MAP["victoire"],
+    "EASY": PAIRING_SCORE_MAP["grosse_victoire"],
     "UNKNOWN": 10.0,
     "GAMBLE": 10.0,
+}
+
+FIGHT_PHASE_BY_REMAINING = {
+    8: {"kind": "standard", "label": "First defense", "slot_numbers": [1, 2]},
+    6: {"kind": "standard", "label": "Second defense", "slot_numbers": [3, 4]},
+    4: {"kind": "round3", "label": "Third defense", "slot_numbers": [5, 6, 7, 8]},
+    0: {"kind": "complete", "label": "Round complete", "slot_numbers": []},
 }
 
 SCENARIO_LABELS = {
@@ -97,56 +135,759 @@ def default_list_name(player: dict):
         return list_name_at(player, 0)
     return "No default list"
 
+
+def is_filled_pairing_slot(pairing):
+    if not isinstance(pairing, dict):
+        return False
+    return isinstance(pairing.get("player_id"), int) and isinstance(pairing.get("army_index"), int)
+
+
+def player_brief(entry: dict):
+    if not isinstance(entry, dict):
+        return {"player_id": None, "name": "Unknown player", "list_name": ""}
+    return {
+        "player_id": entry.get("player_id"),
+        "name": entry.get("player_name") or f"Player {entry.get('player_id')}",
+        "list_name": entry.get("list_name") or "No default list",
+    }
+
+
+def army_brief(army: dict, army_index: int):
+    army = army if isinstance(army, dict) else {}
+    return {
+        "army_index": army_index,
+        "player_name": (army.get("player_name") or "").strip() or f"Opponent #{army_index + 1}",
+        "faction": (army.get("faction") or "").strip() or f"Army #{army_index + 1}",
+    }
+
+
+def validate_fight_assistant_pairings(pairings):
+    if not isinstance(pairings, list):
+        raise ValueError("pairings must be a list")
+
+    used_players = set()
+    used_armies = set()
+    filled_slots = []
+
+    for pairing in pairings:
+        if not isinstance(pairing, dict):
+            raise ValueError("Invalid pairing entry")
+
+        has_player = isinstance(pairing.get("player_id"), int)
+        has_army = isinstance(pairing.get("army_index"), int)
+        if has_player != has_army:
+            raise ValueError("Finish or clear the current slot before using the pairing assistant.")
+        if not has_player:
+            continue
+
+        game_no = pairing.get("game_no")
+        player_id = pairing.get("player_id")
+        army_index = pairing.get("army_index")
+
+        if not isinstance(game_no, int) or not (1 <= game_no <= 8):
+            raise ValueError("game_no must be between 1 and 8")
+        if player_id in used_players or army_index in used_armies:
+            raise ValueError("Current pairings contain duplicate players or duplicate opponent armies.")
+
+        used_players.add(player_id)
+        used_armies.add(army_index)
+        filled_slots.append(game_no)
+
+    filled_slots.sort()
+    expected_prefix = list(range(1, len(filled_slots) + 1))
+    if filled_slots != expected_prefix:
+        raise ValueError("The pairing assistant expects previous rounds to be locked in order from Game 1.")
+
+    if len(filled_slots) not in {0, 2, 4, 8}:
+        raise ValueError("The pairing assistant can only advise at the start of a new pairing round.")
+
+    return {
+        "used_players": used_players,
+        "used_armies": used_armies,
+        "filled_count": len(filled_slots),
+    }
+
+
+def build_fight_solver_context(game, pairings):
+    roster = game.get("roster") if isinstance(game.get("roster"), list) else []
+    armies = game.get("armies") if isinstance(game.get("armies"), list) else []
+    matrix = game.get("matrix") if isinstance(game.get("matrix"), dict) else {}
+
+    if len(roster) != 8:
+        raise ValueError(f"Need exactly 8 roster players (found {len(roster)})")
+    if len(armies) != 8:
+        raise ValueError(f"Need exactly 8 opponent codex (found {len(armies)})")
+
+    pairing_state = validate_fight_assistant_pairings(pairings)
+    used_players = pairing_state["used_players"]
+    used_armies = pairing_state["used_armies"]
+
+    remaining_players = [
+        player for player in roster
+        if isinstance(player, dict) and isinstance(player.get("player_id"), int) and player.get("player_id") not in used_players
+    ]
+    remaining_armies = [
+        (army_index, army)
+        for army_index, army in enumerate(armies)
+        if army_index not in used_armies
+    ]
+
+    remaining_count = len(remaining_players)
+    if remaining_count != len(remaining_armies):
+        raise ValueError("Mismatch between remaining roster players and opponent armies.")
+    if remaining_count not in FIGHT_PHASE_BY_REMAINING:
+        raise ValueError("The pairing assistant only supports 8, 6, 4, or 0 remaining matchups.")
+
+    player_infos = [player_brief(player) for player in remaining_players]
+    army_infos = [army_brief(army, army_index) for army_index, army in remaining_armies]
+    local_player_by_id = {info["player_id"]: idx for idx, info in enumerate(player_infos)}
+    local_army_by_index = {info["army_index"]: idx for idx, info in enumerate(army_infos)}
+
+    score_matrix = []
+    missing_cells = []
+    for player_info in player_infos:
+        row = []
+        for army_info in army_infos:
+            key = f"{player_info['player_id']}-{army_info['army_index']}"
+            state = matrix.get(key)
+            score = STATE_TO_SCORE.get(state)
+            if score is None:
+                missing_cells.append({
+                    "player_id": player_info["player_id"],
+                    "army_index": army_info["army_index"],
+                })
+                score = -9999.0
+            row.append(score)
+        score_matrix.append(row)
+
+    if missing_cells:
+        raise ValueError("Matrix incomplete: some remaining cells are not filled")
+
+    return {
+        "phase": FIGHT_PHASE_BY_REMAINING[remaining_count],
+        "remaining_count": remaining_count,
+        "player_infos": player_infos,
+        "army_infos": army_infos,
+        "local_player_by_id": local_player_by_id,
+        "local_army_by_index": local_army_by_index,
+        "score_matrix": score_matrix,
+        "missing_cells": missing_cells,
+    }
+
+
+def build_solver_plan_item(game_no, player_info, army_info):
+    return {
+        "game_no": game_no,
+        "player_id": player_info["player_id"],
+        "army_index": army_info["army_index"],
+        "player_name": player_info["name"],
+        "opponent_name": army_info["player_name"],
+        "opponent_faction": army_info["faction"],
+    }
+
+
+def compute_selected_defender_score(ctx, solver, remaining_locals, remaining_mask, our_defender_local):
+    if ctx["remaining_count"] == 4:
+        return min(
+            solver.solve_after_defenders_round3_value(
+                remaining_mask,
+                remaining_mask,
+                our_defender_local,
+                their_def,
+            )
+            for their_def in remaining_locals
+        )
+
+    return min(
+        solver.solve_after_defenders_standard_value(
+            remaining_mask,
+            remaining_mask,
+            our_defender_local,
+            their_def,
+        )
+        for their_def in remaining_locals
+    )
+
+
+def solve_defender_branch(ctx, solver, remaining_locals, our_defender_local, enemy_defender_local):
+    if ctx["remaining_count"] == 4:
+        return solver.solve_after_defenders_round3(
+            remaining_locals,
+            remaining_locals,
+            our_defender_local,
+            enemy_defender_local,
+        )
+
+    return solver.solve_after_defenders_standard(
+        remaining_locals,
+        remaining_locals,
+        our_defender_local,
+        enemy_defender_local,
+    )
+
+
+def solve_defender_branch_for_state(solver, ours, theirs, our_defender_local, enemy_defender_local):
+    if len(ours) == 4:
+        return solver.solve_after_defenders_round3(
+            ours,
+            theirs,
+            our_defender_local,
+            enemy_defender_local,
+        )
+
+    return solver.solve_after_defenders_standard(
+        ours,
+        theirs,
+        our_defender_local,
+        enemy_defender_local,
+    )
+
+
+def build_plan_item_from_locals(ctx, game_no, our_local, their_local):
+    return build_solver_plan_item(
+        game_no,
+        ctx["player_infos"][our_local],
+        ctx["army_infos"][their_local],
+    )
+
+
+def simulate_mirror_step(ctx, solver, ours, theirs, forced_our_defs_by_remaining=None, forced_enemy_defs_by_remaining=None):
+    ours = tuple(ours)
+    theirs = tuple(theirs)
+    forced_our_defs_by_remaining = forced_our_defs_by_remaining or {}
+    forced_enemy_defs_by_remaining = forced_enemy_defs_by_remaining or {}
+
+    if len(ours) != len(theirs):
+        raise ValueError("Mirror simulation needs the same number of remaining players on both sides.")
+    if len(ours) == 0:
+        return {"total_score": 0.0, "steps": [], "final_plan": []}
+
+    phase = FIGHT_PHASE_BY_REMAINING[len(ours)]
+    forced_our_def = forced_our_defs_by_remaining.get(len(ours))
+    if forced_our_def is not None and forced_our_def in ours:
+        our_defender_local = forced_our_def
+    else:
+        our_defender_local = solver.recommend_defender(ours, theirs)["best_defender"]
+
+    branch_by_enemy_def = {
+        enemy_def_local: solve_defender_branch_for_state(solver, ours, theirs, our_defender_local, enemy_def_local)
+        for enemy_def_local in theirs
+    }
+    forced_enemy_def = forced_enemy_defs_by_remaining.get(len(theirs))
+    if forced_enemy_def is not None and forced_enemy_def in theirs:
+        enemy_defender_local = forced_enemy_def
+    else:
+        enemy_defender_local = min(branch_by_enemy_def, key=lambda idx: branch_by_enemy_def[idx]["value"])
+
+    defender_detail = branch_by_enemy_def[enemy_defender_local]
+    attack_pair_local = tuple(defender_detail["best_attack_pair"])
+    enemy_attack_pair_local, attack_detail = min(
+        defender_detail["by_enemy_attack_pair"].items(),
+        key=lambda item: item[1]["value"],
+    )
+
+    accepted_enemy_local = attack_detail["best_accept"]
+    accepted_our_local = attack_detail["enemy_best_accept"]
+    refused_enemy_local = other_of_pair(enemy_attack_pair_local, accepted_enemy_local)
+    refused_our_local = other_of_pair(attack_pair_local, accepted_our_local)
+
+    step = {
+        "phase_kind": phase["kind"],
+        "phase_label": phase["label"],
+        "our_defender_local": our_defender_local,
+        "our_defender_label": format_report_player(ctx["player_infos"][our_defender_local]),
+        "enemy_defender_local": enemy_defender_local,
+        "enemy_defender_label": format_report_army(ctx["army_infos"][enemy_defender_local]),
+        "our_attackers_label": " + ".join(format_report_player(ctx["player_infos"][idx]) for idx in attack_pair_local),
+        "enemy_attackers_label": " + ".join(format_report_army(ctx["army_infos"][idx]) for idx in enemy_attack_pair_local),
+        "accepted_enemy_label": format_report_army(ctx["army_infos"][accepted_enemy_local]),
+        "accepted_our_label": format_report_player(ctx["player_infos"][accepted_our_local]),
+        "refused_label": (
+            f"{format_report_player(ctx['player_infos'][refused_our_local])} "
+            f"vs {format_report_army(ctx['army_infos'][refused_enemy_local])}"
+        ),
+        "leftovers_label": None,
+        "locked_plan": [],
+        "remaining_tables": 0,
+        "remaining_total": 0.0,
+        "next_our_defender_label": None,
+        "projected_total": 0.0,
+    }
+
+    if len(ours) == 4:
+        our_leftover_local = attack_detail["our_forgotten"]
+        their_leftover_local = attack_detail["their_forgotten"]
+        final_plan = [
+            build_plan_item_from_locals(ctx, phase["slot_numbers"][0], our_defender_local, accepted_enemy_local),
+            build_plan_item_from_locals(ctx, phase["slot_numbers"][1], accepted_our_local, enemy_defender_local),
+            build_plan_item_from_locals(ctx, phase["slot_numbers"][2], refused_our_local, refused_enemy_local),
+            build_plan_item_from_locals(ctx, phase["slot_numbers"][3], our_leftover_local, their_leftover_local),
+        ]
+        total_score = round(
+            solver.matchup_score(our_defender_local, accepted_enemy_local)
+            + solver.matchup_score(accepted_our_local, enemy_defender_local)
+            + solver.matchup_score(refused_our_local, refused_enemy_local)
+            + solver.matchup_score(our_leftover_local, their_leftover_local),
+            1,
+        )
+        step["leftovers_label"] = (
+            f"{format_report_player(ctx['player_infos'][our_leftover_local])} "
+            f"vs {format_report_army(ctx['army_infos'][their_leftover_local])}"
+        )
+        step["locked_plan"] = list(final_plan)
+        return {
+            "step": step,
+            "phase": phase,
+            "enemy_defender_local": enemy_defender_local,
+            "enemy_defender_label": format_report_army(ctx["army_infos"][enemy_defender_local]),
+            "immediate_score": total_score,
+            "next_ours": tuple(),
+            "next_theirs": tuple(),
+            "final_plan": final_plan,
+            "is_terminal": True,
+        }
+
+    current_plan = [
+        build_plan_item_from_locals(ctx, phase["slot_numbers"][0], our_defender_local, accepted_enemy_local),
+        build_plan_item_from_locals(ctx, phase["slot_numbers"][1], accepted_our_local, enemy_defender_local),
+    ]
+    next_ours = tuple(sorted(
+        idx for idx in ours
+        if idx not in {our_defender_local, accepted_our_local}
+    ))
+    next_theirs = tuple(sorted(
+        idx for idx in theirs
+        if idx not in {enemy_defender_local, accepted_enemy_local}
+    ))
+    immediate_score = round(
+        solver.matchup_score(our_defender_local, accepted_enemy_local)
+        + solver.matchup_score(accepted_our_local, enemy_defender_local)
+        ,
+        1,
+    )
+
+    step["locked_plan"] = current_plan
+    return {
+        "step": step,
+        "phase": phase,
+        "enemy_defender_local": enemy_defender_local,
+        "enemy_defender_label": format_report_army(ctx["army_infos"][enemy_defender_local]),
+        "immediate_score": immediate_score,
+        "next_ours": next_ours,
+        "next_theirs": next_theirs,
+        "final_plan": current_plan,
+        "is_terminal": False,
+    }
+
+
+def simulate_mirror_line(ctx, solver, ours, theirs, forced_our_defs_by_remaining=None, forced_enemy_defs_by_remaining=None):
+    step_data = simulate_mirror_step(
+        ctx,
+        solver,
+        ours,
+        theirs,
+        forced_our_defs_by_remaining=forced_our_defs_by_remaining,
+        forced_enemy_defs_by_remaining=forced_enemy_defs_by_remaining,
+    )
+
+    step = dict(step_data["step"])
+    if step_data["is_terminal"]:
+        total_score = round(step_data["immediate_score"], 1)
+        step["projected_total"] = total_score
+        return {
+            "total_score": total_score,
+            "steps": [step],
+            "final_plan": list(step_data["final_plan"]),
+        }
+
+    next_line = simulate_mirror_line(
+        ctx,
+        solver,
+        step_data["next_ours"],
+        step_data["next_theirs"],
+        forced_our_defs_by_remaining=forced_our_defs_by_remaining,
+        forced_enemy_defs_by_remaining=forced_enemy_defs_by_remaining,
+    )
+    total_score = round(step_data["immediate_score"] + next_line["total_score"], 1)
+    step["remaining_tables"] = len(step_data["next_ours"])
+    step["remaining_total"] = round(next_line["total_score"], 1)
+    if next_line["steps"]:
+        step["next_our_defender_label"] = next_line["steps"][0]["our_defender_label"]
+    step["projected_total"] = total_score
+
+    return {
+        "total_score": total_score,
+        "steps": [step] + next_line["steps"],
+        "final_plan": list(step_data["final_plan"]) + next_line["final_plan"],
+    }
+
+
+def build_mirror_scenarios(ctx, solver, ours, theirs, forced_our_defs_by_remaining=None, forced_enemy_defs_by_remaining=None):
+    ours = tuple(ours)
+    theirs = tuple(theirs)
+    forced_our_defs_by_remaining = forced_our_defs_by_remaining or {}
+    forced_enemy_defs_by_remaining = forced_enemy_defs_by_remaining or {}
+
+    if len(ours) == 0:
+        return []
+
+    phase = FIGHT_PHASE_BY_REMAINING[len(ours)]
+    forced_enemy_def = forced_enemy_defs_by_remaining.get(len(theirs))
+    if forced_enemy_def is None:
+        scenarios = []
+        for enemy_defender_local in theirs:
+            scenario_enemy_defs_by_remaining = dict(forced_enemy_defs_by_remaining)
+            scenario_enemy_defs_by_remaining[len(theirs)] = enemy_defender_local
+            full_line = simulate_mirror_line(
+                ctx,
+                solver,
+                ours,
+                theirs,
+                forced_our_defs_by_remaining=forced_our_defs_by_remaining,
+                forced_enemy_defs_by_remaining=scenario_enemy_defs_by_remaining,
+            )
+            scenarios.append({
+                "branch_phase_label": phase["label"],
+                "enemy_defender": ctx["army_infos"][enemy_defender_local],
+                "enemy_defender_label": format_report_army(ctx["army_infos"][enemy_defender_local]),
+                "score": round(full_line["total_score"], 1),
+                "steps": full_line["steps"],
+                "final_plan": full_line["final_plan"],
+            })
+        return scenarios
+
+    step_data = simulate_mirror_step(
+        ctx,
+        solver,
+        ours,
+        theirs,
+        forced_our_defs_by_remaining=forced_our_defs_by_remaining,
+        forced_enemy_defs_by_remaining=forced_enemy_defs_by_remaining,
+    )
+
+    if step_data["is_terminal"]:
+        step = dict(step_data["step"])
+        total_score = round(step_data["immediate_score"], 1)
+        step["projected_total"] = total_score
+        return [{
+            "branch_phase_label": phase["label"],
+            "enemy_defender": ctx["army_infos"][step_data["enemy_defender_local"]],
+            "enemy_defender_label": step_data["enemy_defender_label"],
+            "score": total_score,
+            "steps": [step],
+            "final_plan": list(step_data["final_plan"]),
+        }]
+
+    child_scenarios = build_mirror_scenarios(
+        ctx,
+        solver,
+        step_data["next_ours"],
+        step_data["next_theirs"],
+        forced_our_defs_by_remaining=forced_our_defs_by_remaining,
+        forced_enemy_defs_by_remaining=forced_enemy_defs_by_remaining,
+    )
+
+    scenarios = []
+    for child in child_scenarios:
+        step = dict(step_data["step"])
+        total_score = round(step_data["immediate_score"] + child["score"], 1)
+        step["remaining_tables"] = len(step_data["next_ours"])
+        step["remaining_total"] = round(child["score"], 1)
+        if child["steps"]:
+            step["next_our_defender_label"] = child["steps"][0]["our_defender_label"]
+        step["projected_total"] = total_score
+        scenarios.append({
+            "branch_phase_label": child["branch_phase_label"],
+            "enemy_defender": child["enemy_defender"],
+            "enemy_defender_label": child["enemy_defender_label"],
+            "score": total_score,
+            "steps": [step] + child["steps"],
+            "final_plan": list(step_data["final_plan"]) + child["final_plan"],
+        })
+
+    return scenarios
+
+
+def format_report_player(player_info):
+    return player_info["name"]
+
+
+def format_report_army(army_info):
+    return f"{army_info['player_name']} ({army_info['faction']})"
+
+
+def scenario_band(score, baseline_score):
+    delta = score - baseline_score
+    if delta <= 1.0:
+        return "hard pressure"
+    if delta <= 3.0:
+        return "solid mirror line"
+    if delta <= 6.0:
+        return "playable branch"
+    return "loose mirror line"
+
+
+MIRROR_REPORT_SCENARIO_LIMIT = 5
+
+
+def build_mirror_report_text(
+    ctx,
+    summary,
+    selected_our_defender,
+    selected_score,
+    scenarios,
+    forced_report_defenders=None,
+):
+    forced_report_defenders = forced_report_defenders or {}
+    if not scenarios:
+        return (
+            "Mirror Pairing Monitor\n"
+            "No meaningful opponent defender branches remain in this round."
+        )
+
+    detailed_scenarios = scenarios[:min(len(scenarios), MIRROR_REPORT_SCENARIO_LIMIT)]
+    displayed_count = len(detailed_scenarios)
+    lines = [
+        "Mirror Pairing Monitor",
+        "Autogenerated from the current round state.",
+        "Assumption: the opponent reads the grid symmetrically and chooses the line that minimizes our expected team score.",
+        "",
+    ]
+
+    recommended_text = (
+        f"{format_report_player(summary['recommended_our_defender'])} "
+        f"({summary['guaranteed_score']:.1f} team pts guaranteed)"
+    )
+    selected_text = (
+        f"{format_report_player(selected_our_defender)} "
+        f"({selected_score:.1f} team pts guaranteed)"
+    )
+    lines.append(f"Round analyzed: {ctx['phase']['label']}.")
+    lines.append(f"Solver recommendation: {recommended_text}.")
+    if selected_our_defender["player_id"] == summary["recommended_our_defender"]["player_id"]:
+        lines.append(f"Analyzed defender: {selected_text}.")
+    else:
+        lines.append(f"Analyzed defender override: {selected_text}.")
+    if forced_report_defenders.get("first_label"):
+        lines.append(f"Forced first defense in report: {forced_report_defenders['first_label']}.")
+    if forced_report_defenders.get("second_label"):
+        lines.append(
+            f"Forced second defense in report: {forced_report_defenders['second_label']} "
+            "when that player is still available; otherwise the solver falls back automatically."
+        )
+    if forced_report_defenders.get("enemy_first_label"):
+        lines.append(f"Forced opponent first defense in report: {forced_report_defenders['enemy_first_label']}.")
+    if forced_report_defenders.get("enemy_second_label"):
+        lines.append(
+            f"Forced opponent second defense in report: {forced_report_defenders['enemy_second_label']} "
+            "when that codex is still available; otherwise the mirror fallback stays active."
+        )
+    lines.append(f"Scenario branches checked: {len(scenarios)}.")
+    if displayed_count == len(scenarios):
+        lines.append(f"Detailed scenarios shown: all {displayed_count} legal branches.")
+    else:
+        lines.append(
+            f"Detailed scenarios shown: {displayed_count} hardest branches "
+            f"(lowest projected team totals)."
+        )
+    lines.append(
+        "Important: every value below is a team total from that state. "
+        "For example, 50.0 pts after the first defense means 50 team points still guaranteed across the remaining games, not 50 on one player."
+    )
+
+    for idx, scenario in enumerate(detailed_scenarios, start=1):
+        lines.extend([
+            "",
+            (
+                f"Scenario {idx}: they open with {scenario['enemy_defender_label']} "
+                f"({scenario['band']}). Final projected team total: {scenario['score']:.1f} team pts."
+                if scenario.get("branch_phase_label") == ctx["phase"]["label"]
+                else (
+                    f"Scenario {idx}: branch point at {scenario['branch_phase_label']}, "
+                    f"they defend with {scenario['enemy_defender_label']} "
+                    f"({scenario['band']}). Final projected team total: {scenario['score']:.1f} team pts."
+                )
+            ),
+        ])
+
+        for step in scenario["steps"]:
+            lines.extend([
+                f"{step['phase_label']}:",
+                f"- We defend with: {step['our_defender_label']}.",
+                f"- They defend with: {step['enemy_defender_label']}.",
+                f"- Our attack pair: {step['our_attackers_label']}.",
+                f"- Their attack pair: {step['enemy_attackers_label']}.",
+                f"- We accept on our defense: {step['accepted_enemy_label']}.",
+                f"- They accept on theirs: {step['accepted_our_label']}.",
+            ])
+
+            if step["phase_kind"] == "round3":
+                lines.extend([
+                    f"- Refused attackers: {step['refused_label']}.",
+                    f"- Leftovers: {step['leftovers_label']}.",
+                    f"- This closes the round at {step['projected_total']:.1f} team pts.",
+                ])
+            else:
+                locked_text = " / ".join(
+                    f"G{item['game_no']} {item['player_name']} vs {item['opponent_name']} ({item['opponent_faction']})"
+                    for item in step["locked_plan"]
+                )
+                lines.extend([
+                    f"- Games locked now: {locked_text}.",
+                    f"- From the remaining {step['remaining_tables']} games, the solver still guarantees {step['remaining_total']:.1f} team pts.",
+                    f"- If this branch happens, the next suggested defender is: {step['next_our_defender_label']}.",
+                ])
+
+        final_pairs = " / ".join(
+            f"G{item['game_no']} {item['player_name']} vs {item['opponent_name']} ({item['opponent_faction']})"
+            for item in scenario["final_plan"]
+        )
+        lines.append(f"Final projected pairings: {final_pairs}.")
+
+    lines.extend([
+        "",
+        "This monitor refreshes automatically when the round state or our defender changes.",
+    ])
+    return "\n".join(lines)
+
+
+@lru_cache(maxsize=64)
+def get_cached_fight_solver(score_matrix_key, our_names, their_names):
+    matrix = [list(row) for row in score_matrix_key]
+    return TeamPairingSolver(matrix, list(our_names), list(their_names))
+
+CAPTAIN_ONLY_ENDPOINTS = {
+    "api_delete_player",
+}
+
+
+def _empty_auth_context():
+    return {
+        "authenticated": False,
+        "ready": False,
+        "is_admin": False,
+        "auth_user_id": None,
+        "profile_id": None,
+        "email": None,
+        "display_name": None,
+        "membership_id": None,
+        "team_id": None,
+        "team_name": None,
+        "team_slug": None,
+        "role": None,
+        "player_id": None,
+        "player_name": None,
+        "memberships": [],
+    }
+
+
+def current_auth():
+    return getattr(g, "auth_context", _empty_auth_context())
+
+
+def current_team_id():
+    return current_auth().get("team_id")
+
+
+def is_site_admin(context: dict | None = None):
+    context = context or current_auth()
+    email = (context.get("email") or "").strip().lower()
+    return bool(email and email == ADMIN_EMAIL)
+
+
+def auth_error_response(message: str, status_code: int):
+    if request.path.startswith("/api/"):
+        return jsonify({"error": message}), status_code
+    if status_code == 403 and current_auth().get("authenticated"):
+        if not current_auth().get("ready"):
+            return redirect(url_for("team_access_page"))
+        return message, status_code
+    return redirect(url_for("index"))
+
+
+@app.before_request
+def hydrate_auth_context():
+    auth_user_id = session.get("auth_user_id")
+    membership_id = session.get("membership_id")
+    try:
+        context = get_auth_context(auth_user_id, membership_id)
+    except Exception as exc:
+        app.logger.warning("Failed to hydrate auth context: %s", exc)
+        context = _empty_auth_context()
+
+    context["is_admin"] = is_site_admin(context)
+    g.auth_context = context
+
+    if context.get("authenticated"):
+        session["auth_user_id"] = context["auth_user_id"]
+        if context.get("membership_id"):
+            session["membership_id"] = context["membership_id"]
+        else:
+            session.pop("membership_id", None)
+    else:
+        session.pop("auth_user_id", None)
+        session.pop("membership_id", None)
+
+    if request.endpoint in CAPTAIN_ONLY_ENDPOINTS:
+        if not context.get("authenticated"):
+            return auth_error_response("Authentication required.", 401)
+        if not context.get("ready"):
+            return auth_error_response("Choose or join a team first.", 403)
+        if context.get("role") != "captain":
+            return auth_error_response("Captain access required to delete players.", 403)
+
+
+@app.context_processor
+def inject_auth_context():
+    return {"auth_context": current_auth()}
+
+
 def login_required(view):
     @wraps(view)
     def wrapped(*args, **kwargs):
-        if not session.get("logged_in"):
-            return redirect(url_for("index"))
+        if not current_auth().get("authenticated"):
+            return auth_error_response("Authentication required.", 401)
+        if not current_auth().get("ready"):
+            return auth_error_response("Choose or join a team first.", 403)
+        return view(*args, **kwargs)
+    return wrapped
+
+
+def authenticated_required(view):
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        if not current_auth().get("authenticated"):
+            return auth_error_response("Authentication required.", 401)
+        return view(*args, **kwargs)
+    return wrapped
+
+
+def admin_required(view):
+    @wraps(view)
+    def wrapped(*args, **kwargs):
+        if not current_auth().get("authenticated"):
+            return auth_error_response("Authentication required.", 401)
+        if not current_auth().get("is_admin"):
+            return auth_error_response("Site admin access required.", 403)
         return view(*args, **kwargs)
     return wrapped
 
 def load_games():
-    if not GAMES_FILE.exists():
-        return []
-    try:
-        with GAMES_FILE.open() as f:
-            data = json.load(f)
-            if isinstance(data, list):
-                return data
-            return []
-    except json.JSONDecodeError:
-        return []
+    return db_load_games(current_team_id())
+
+def load_game(game_id):
+    return db_load_game(current_team_id(), game_id)
 
 def save_games(games):
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    with GAMES_FILE.open("w") as f:
-        json.dump(games, f, indent=2)
+    db_save_games(current_team_id(), games)
 
 def next_game_id(games):
-    ids = [g.get("id") for g in games if isinstance(g, dict) and "id" in g]
-    if not ids:
-        return 1
-    return max(ids) + 1
+    return next_public_id("games")
 
 def load_players():
-    if not PLAYERS_FILE.exists():
-        return []
-    try:
-        with PLAYERS_FILE.open() as f:
-            data = json.load(f)
-            if isinstance(data, list):
-                data = normalize_players(data)
-                # optional: save back once to persist "active" field
-                save_players(data)
-                return data
-            return []
-    except json.JSONDecodeError:
-        return []
+    return normalize_players(db_load_players(current_team_id()))
 
 def normalize_players(players):
-    # ensure each player has "active"
-    # default: first 8 players active, rest inactive (only if missing field)
-    active_count = 0
     for p in players:
         if not isinstance(p, dict):
             continue
@@ -164,61 +905,25 @@ def normalize_players(players):
         p["list_names"] = normalized_names
         if "default_index" not in p:
             p["default_index"] = None
-        if "active" not in p:
-            if active_count < 8:
-                p["active"] = True
-                active_count += 1
-            else:
-                p["active"] = False
-        else:
-            if p.get("active") is True:
-                active_count += 1
     return players
 
 def save_players(players):
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    with PLAYERS_FILE.open("w") as f:
-        json.dump(players, f, indent=2)
+    db_save_players(current_team_id(), players)
 
 def load_settings():
-    if not SETTINGS_FILE.exists():
-        return {}
-    try:
-        with SETTINGS_FILE.open() as f:
-            data = json.load(f)
-            return data if isinstance(data, dict) else {}
-    except json.JSONDecodeError:
-        return {}
+    return db_load_settings(current_team_id())
 
 def save_settings(settings):
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    with SETTINGS_FILE.open("w") as f:
-        json.dump(settings, f, indent=2)
+    db_save_settings(current_team_id(), settings)
 
 def load_calendar_items():
-    if not CALENDAR_FILE.exists():
-        return []
-    try:
-        with CALENDAR_FILE.open() as f:
-            data = json.load(f)
-            if isinstance(data, dict):
-                items = data.get("items", [])
-            else:
-                items = data
-            return items if isinstance(items, list) else []
-    except json.JSONDecodeError:
-        return []
+    return db_load_calendar_items(current_team_id())
 
 def save_calendar_items(items):
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    with CALENDAR_FILE.open("w") as f:
-        json.dump({"items": items}, f, indent=2)
+    db_save_calendar_items(current_team_id(), items)
 
 def next_calendar_id(items):
-    ids = [i.get("id") for i in items if isinstance(i, dict) and "id" in i]
-    if not ids:
-        return 1
-    return max(ids) + 1
+    return next_public_id("calendar_items")
 
 def send_discord_message(content: str):
     settings = load_settings()
@@ -256,22 +961,412 @@ def send_discord_message(content: str):
         return False
 
 def next_player_id(players):
-    """Compute next player id, even if some entries are odd."""
-    ids = [p.get("id") for p in players if isinstance(p, dict) and "id" in p]
-    if not ids:
-        return 1
-    return max(ids) + 1
+    return next_public_id("players")
+
+
+def normalize_player_name(name) -> str:
+    if not isinstance(name, str):
+        return ""
+    return re.sub(r"\s+", " ", name).strip()
+
+
+def requested_player_names(payload: dict) -> list[str]:
+    names = []
+
+    single_name = normalize_player_name(payload.get("name"))
+    if single_name:
+        names.append(single_name)
+
+    raw_names = payload.get("names")
+    if isinstance(raw_names, list):
+        for raw_name in raw_names:
+            name = normalize_player_name(raw_name)
+            if name:
+                names.append(name)
+
+    return names
+
+
+def apply_session_context(context: dict):
+    session["auth_user_id"] = context.get("auth_user_id")
+    if context.get("membership_id"):
+        session["membership_id"] = context.get("membership_id")
+    else:
+        session.pop("membership_id", None)
+
+
+def auth_payload(context: dict | None = None):
+    context = context or current_auth()
+    return {
+        "authenticated": bool(context.get("authenticated")),
+        "ready": bool(context.get("ready")),
+        "is_admin": is_site_admin(context),
+        "email": context.get("email"),
+        "display_name": context.get("display_name"),
+        "membership_id": context.get("membership_id"),
+        "team_id": context.get("team_id"),
+        "team_name": context.get("team_name"),
+        "team_slug": context.get("team_slug"),
+        "role": context.get("role"),
+        "player_id": context.get("player_id"),
+        "player_name": context.get("player_name"),
+        "memberships": context.get("memberships") or [],
+    }
+
+
+def require_authenticated_user():
+    if not current_auth().get("authenticated"):
+        return jsonify({"error": "Authentication required."}), 401
+    return None
+
+
+def ensure_can_manage_player(player_id: int):
+    return None
+
+
+def matrix_key_belongs_to_player(key, player_id: int):
+    if not isinstance(key, str):
+        return False
+    raw_player_id = key.split("-", 1)[0]
+    try:
+        return int(raw_player_id) == player_id
+    except (TypeError, ValueError):
+        return False
+
+
+def clear_deleted_player_pairing_slot(pairing: dict, player_id: int):
+    if not isinstance(pairing, dict) or pairing.get("player_id") != player_id:
+        return pairing, False
+
+    cleared = dict(pairing)
+    cleared["player_id"] = None
+    cleared["army_index"] = None
+    cleared["layout_n"] = None
+    cleared.pop("real_score", None)
+    return cleared, True
+
+
+def cleanup_player_references(player_id: int):
+    summary = {
+        "games_touched": 0,
+        "roster_entries_removed": 0,
+        "matrix_entries_removed": 0,
+        "pairing_slots_cleared": 0,
+        "calendar_items_removed": 0,
+        "calendar_items_unassigned": 0,
+    }
+
+    games = load_games()
+    games_changed = False
+    for game in games:
+        game_changed = False
+
+        roster = game.get("roster")
+        if isinstance(roster, list):
+            new_roster = [
+                entry for entry in roster
+                if not (isinstance(entry, dict) and entry.get("player_id") == player_id)
+            ]
+            removed = len(roster) - len(new_roster)
+            if removed:
+                game["roster"] = new_roster
+                summary["roster_entries_removed"] += removed
+                game_changed = True
+
+        player_ids = game.get("player_ids")
+        if isinstance(player_ids, list) and player_id in player_ids:
+            game["player_ids"] = [pid for pid in player_ids if pid != player_id]
+            game_changed = True
+
+        matrix = game.get("matrix")
+        if isinstance(matrix, dict):
+            new_matrix = {
+                key: value
+                for key, value in matrix.items()
+                if not matrix_key_belongs_to_player(key, player_id)
+            }
+            removed = len(matrix) - len(new_matrix)
+            if removed:
+                game["matrix"] = new_matrix
+                summary["matrix_entries_removed"] += removed
+                game_changed = True
+
+        pairings = game.get("pairings")
+        if isinstance(pairings, list):
+            new_pairings = []
+            cleared_count = 0
+            for pairing in pairings:
+                new_pairing, cleared = clear_deleted_player_pairing_slot(pairing, player_id)
+                new_pairings.append(new_pairing)
+                if cleared:
+                    cleared_count += 1
+            if cleared_count:
+                game["pairings"] = new_pairings
+                summary["pairing_slots_cleared"] += cleared_count
+                game_changed = True
+
+        if game_changed:
+            summary["games_touched"] += 1
+            games_changed = True
+
+    if games_changed:
+        save_games(games)
+
+    calendar_items = load_calendar_items()
+    new_calendar_items = []
+    calendar_changed = False
+    for item in calendar_items:
+        if item.get("player_id") != player_id:
+            new_calendar_items.append(item)
+            continue
+
+        calendar_changed = True
+        if item.get("type") == "availability":
+            summary["calendar_items_removed"] += 1
+            continue
+
+        updated_item = dict(item)
+        updated_item["player_id"] = None
+        new_calendar_items.append(updated_item)
+        summary["calendar_items_unassigned"] += 1
+
+    if calendar_changed:
+        save_calendar_items(new_calendar_items)
+
+    return summary
+
+
+@app.route("/api/session", methods=["GET"])
+def api_session():
+    return jsonify(auth_payload())
 
 @app.route("/api/login", methods=["POST"])
 def api_login():
     payload = request.get_json(silent=True) or {}
-    password = (payload.get("password") or "").strip()
+    email = (payload.get("email") or "").strip().lower()
+    password = payload.get("password") or ""
 
-    if password != TEAM_PASSWORD:
-        return jsonify({"error": "Invalid password"}), 401
+    if not email or not password:
+        return jsonify({"error": "Email and password are required."}), 400
 
-    session["logged_in"] = True
-    return jsonify({"status": "ok"})
+    try:
+        response = get_supabase_client().auth.sign_in_with_password(
+            {"email": email, "password": password}
+        )
+        user = getattr(response, "user", None)
+        auth_session = getattr(response, "session", None)
+        if not user or not auth_session:
+            return jsonify({"error": "Login failed."}), 401
+
+        display_name = (getattr(user, "user_metadata", None) or {}).get("display_name")
+        ensure_profile(user.id, user.email or email, display_name)
+        context = get_auth_context(user.id, session.get("membership_id"))
+        apply_session_context(context)
+        return jsonify({"status": "ok", "session": auth_payload(context)})
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 401
+
+
+@app.route("/api/signup", methods=["POST"])
+def api_signup():
+    payload = request.get_json(silent=True) or {}
+    email = (payload.get("email") or "").strip().lower()
+    password = payload.get("password") or ""
+    display_name = (payload.get("display_name") or "").strip()
+
+    if not email or not password:
+        return jsonify({"error": "Email and password are required."}), 400
+    if not display_name:
+        return jsonify({"error": "Display name is required."}), 400
+
+    try:
+        response = get_supabase_client().auth.sign_up(
+            {
+                "email": email,
+                "password": password,
+                "options": {"data": {"display_name": display_name}},
+            }
+        )
+        user = getattr(response, "user", None)
+        auth_session = getattr(response, "session", None)
+        if not user:
+            return jsonify({"error": "Could not create account."}), 400
+
+        ensure_profile(user.id, user.email or email, display_name)
+
+        if not auth_session:
+            return jsonify(
+                {
+                    "status": "pending_confirmation",
+                    "message": "Account created. Confirm the email in Supabase before signing in.",
+                }
+            ), 202
+
+        context = get_auth_context(user.id, session.get("membership_id"))
+        apply_session_context(context)
+        return jsonify({"status": "ok", "session": auth_payload(context)})
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 400
+
+
+@app.route("/api/teams/discover", methods=["GET"])
+def api_discover_teams():
+    try:
+        return jsonify(list_public_teams())
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/teams/select", methods=["POST"])
+def api_select_team():
+    auth_failure = require_authenticated_user()
+    if auth_failure:
+        return auth_failure
+
+    payload = request.get_json(silent=True) or {}
+    membership_id = payload.get("membership_id")
+    if not isinstance(membership_id, int):
+        return jsonify({"error": "membership_id must be an integer."}), 400
+
+    try:
+        context = select_membership(current_auth()["auth_user_id"], membership_id)
+        apply_session_context(context)
+        return jsonify({"status": "ok", "session": auth_payload(context)})
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 400
+
+
+@app.route("/api/teams/create", methods=["POST"])
+def api_create_team():
+    auth_failure = require_authenticated_user()
+    if auth_failure:
+        return auth_failure
+
+    payload = request.get_json(silent=True) or {}
+    team_name = (payload.get("team_name") or "").strip()
+    team_password = payload.get("team_password") or ""
+    role = (payload.get("role") or "").strip().lower()
+
+    if role != "captain":
+        return jsonify({"error": "A new team must be created by a captain."}), 400
+
+    try:
+        team = create_team(current_auth()["profile_id"], team_name, team_password)
+        membership = join_team(
+            current_auth()["profile_id"],
+            int(team["id"]),
+            team_password,
+            "captain",
+        )
+        context = get_auth_context(current_auth()["auth_user_id"], int(membership["id"]))
+        apply_session_context(context)
+        return jsonify({"status": "ok", "team": team, "session": auth_payload(context)})
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 400
+
+
+@app.route("/api/teams/join", methods=["POST"])
+def api_join_team():
+    auth_failure = require_authenticated_user()
+    if auth_failure:
+        return auth_failure
+
+    payload = request.get_json(silent=True) or {}
+    team_id = payload.get("team_id")
+    team_password = payload.get("team_password") or ""
+    role = (payload.get("role") or "").strip().lower()
+
+    if not isinstance(team_id, int):
+        return jsonify({"error": "team_id must be an integer."}), 400
+
+    try:
+        membership = join_team(
+            current_auth()["profile_id"],
+            team_id,
+            team_password,
+            role,
+        )
+        context = get_auth_context(current_auth()["auth_user_id"], int(membership["id"]))
+        apply_session_context(context)
+        return jsonify({"status": "ok", "session": auth_payload(context)})
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 400
+
+
+@app.route("/admin")
+@admin_required
+def admin_page():
+    return render_template("admin.html", admin_email=ADMIN_EMAIL)
+
+
+@app.route("/api/admin/overview", methods=["GET"])
+@admin_required
+def api_admin_overview():
+    try:
+        return jsonify(admin_overview())
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 500
+
+
+@app.route("/api/admin/teams/<int:team_id>", methods=["PATCH"])
+@admin_required
+def api_admin_rename_team(team_id):
+    payload = request.get_json(silent=True) or {}
+    team_name = (payload.get("name") or "").strip()
+    try:
+        team = admin_rename_team(team_id, team_name)
+        return jsonify({"status": "ok", "team": team})
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 400
+
+
+@app.route("/api/admin/teams/<int:team_id>", methods=["DELETE"])
+@admin_required
+def api_admin_delete_team(team_id):
+    try:
+        team = admin_delete_team(team_id)
+        if current_auth().get("team_id") == team_id:
+            session.pop("membership_id", None)
+        return jsonify({"status": "ok", "team": team})
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 400
+
+
+@app.route("/api/admin/profiles/<int:profile_id>", methods=["PATCH"])
+@admin_required
+def api_admin_rename_profile(profile_id):
+    payload = request.get_json(silent=True) or {}
+    display_name = (payload.get("display_name") or "").strip()
+    try:
+        profile = admin_rename_profile(profile_id, display_name)
+        return jsonify({"status": "ok", "profile": profile})
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 400
+
+
+@app.route("/api/admin/profiles/<int:profile_id>", methods=["DELETE"])
+@admin_required
+def api_admin_delete_profile(profile_id):
+    if current_auth().get("profile_id") == profile_id:
+        return jsonify({"error": "You cannot delete the active admin profile."}), 400
+    try:
+        profile = admin_delete_profile(profile_id)
+        return jsonify({"status": "ok", "profile": profile})
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 400
+
+
+@app.route("/api/admin/memberships/<int:membership_id>", methods=["DELETE"])
+@admin_required
+def api_admin_delete_membership(membership_id):
+    was_current_membership = current_auth().get("membership_id") == membership_id
+    try:
+        membership = admin_delete_membership(membership_id)
+        if was_current_membership:
+            session.pop("membership_id", None)
+        return jsonify({"status": "ok", "membership": membership})
+    except Exception as exc:
+        return jsonify({"error": str(exc)}), 400
 
 @app.route("/api/logout", methods=["POST"])
 def api_logout():
@@ -281,11 +1376,19 @@ def api_logout():
 
 @app.route("/")
 def index():
-    # Intro page
+    auth = current_auth()
+    team_name = auth.get("team_name") or TEAM_NAME
     return render_template("index.html",
-        team_name=TEAM_NAME,
-        logged_in=bool(session.get("logged_in"))
-        )
+        team_name=team_name,
+        logged_in=bool(auth.get("ready")),
+        authenticated=bool(auth.get("authenticated"))
+    )
+
+
+@app.route("/teams/access")
+@authenticated_required
+def team_access_page():
+    return render_template("team_access.html")
 
 
 @app.route("/players")
@@ -304,14 +1407,14 @@ def roster_page():
 def team_management_page():
     settings = load_settings()
     return render_template("team_management.html",
-        team_name=TEAM_NAME,
+        team_name=current_auth().get("team_name") or TEAM_NAME,
         webhook_url=settings.get("discord_webhook", "")
     )
 
 @app.route("/calendar")
 @login_required
 def calendar_page():
-    return render_template("calendar.html", team_name=TEAM_NAME)
+    return render_template("calendar.html", team_name=current_auth().get("team_name") or TEAM_NAME)
 
 @app.route("/api/settings", methods=["GET"])
 @login_required
@@ -451,63 +1554,78 @@ def api_get_players():
 @app.route("/api/players", methods=["POST"])
 @login_required
 def api_add_player():
-    try:
-        data = request.get_json(silent=True) or {}
-        name = data.get("name", "").strip()
-        if not name:
-            return jsonify({"error": "Name is required"}), 400
+    payload = request.get_json(silent=True) or {}
+    names = requested_player_names(payload)
+    if not names:
+        return jsonify({"error": "Provide at least one player name."}), 400
 
-        players = load_players()
-        new_player = {
-            "id": next_player_id(players),
+    players = load_players()
+    existing_name_keys = {
+        normalize_player_name(player.get("name")).lower()
+        for player in players
+        if normalize_player_name(player.get("name"))
+    }
+
+    created = []
+    skipped = []
+    seen_request_keys = set()
+    next_id = next_player_id(players)
+
+    for name in names:
+        key = name.lower()
+        if key in seen_request_keys:
+            skipped.append({"name": name, "reason": "duplicate_in_request"})
+            continue
+        seen_request_keys.add(key)
+
+        if key in existing_name_keys:
+            skipped.append({"name": name, "reason": "already_exists"})
+            continue
+
+        player = {
+            "id": next_id,
             "name": name,
             "lists": [],
             "list_names": [],
             "default_index": None,
             "archetypes": [],
-            "active": False,   # NEW
         }
-        players.append(new_player)
-        save_players(players)
-        return jsonify(new_player), 201
+        next_id += 1
+        players.append(player)
+        created.append(player)
+        existing_name_keys.add(key)
 
-    except Exception as e:
-        # In dev mode, this will help debug in the browser
-        print("Error in /api/players POST:", e)
-        return jsonify({"error": "Internal server error", "details": str(e)}), 500
-    
-@app.route("/api/players/<int:player_id>/active", methods=["POST"])
-@login_required
-def api_set_player_active(player_id):
-    payload = request.get_json(silent=True) or {}
-    active = payload.get("active")
-    if not isinstance(active, bool):
-        return jsonify({"error": "active must be boolean"}), 400
+    if not created:
+        return jsonify({
+            "error": "All provided player names already exist or were duplicates.",
+            "created": [],
+            "skipped": skipped,
+        }), 400
 
-    players = load_players()
-
-    # count currently active excluding this player
-    active_others = sum(1 for p in players if p.get("id") != player_id and p.get("active") is True)
-
-    if active and active_others >= 8:
-        return jsonify({"error": "You can only activate 8 players."}), 400
-
-    for p in players:
-        if p.get("id") == player_id:
-            p["active"] = active
-            save_players(players)
-            return jsonify(p)
-
-    return jsonify({"error": "Player not found"}), 404
+    save_players(players)
+    return jsonify({"created": created, "skipped": skipped}), 201
 
 
 @app.route("/api/players/<int:player_id>", methods=["DELETE"])
 @login_required
 def api_delete_player(player_id):
     players = load_players()
-    players = [p for p in players if p["id"] != player_id]
-    save_players(players)
-    return jsonify({"status": "ok"})
+    player = next((p for p in players if p.get("id") == player_id), None)
+    if not player:
+        return jsonify({"error": "Player not found"}), 404
+
+    cleanup_summary = cleanup_player_references(player_id)
+    remaining_players = [p for p in players if p.get("id") != player_id]
+    save_players(remaining_players)
+
+    return jsonify({
+        "status": "ok",
+        "deleted_player": {
+            "id": player_id,
+            "name": player.get("name") or f"Player {player_id}",
+        },
+        "cleanup": cleanup_summary,
+    })
 
 
 # ---------- API: Lists per player ----------
@@ -515,6 +1633,9 @@ def api_delete_player(player_id):
 @app.route("/api/players/<int:player_id>/lists", methods=["POST"])
 @login_required
 def api_add_list(player_id):
+    access_error = ensure_can_manage_player(player_id)
+    if access_error:
+        return access_error
     data = request.get_json()
     name = data.get("name", "").strip()
     text = data.get("text", "").strip()
@@ -546,6 +1667,9 @@ def api_add_list(player_id):
 @app.route("/api/players/<int:player_id>/lists/<int:list_index>", methods=["POST"])
 @login_required
 def api_update_list(player_id, list_index):
+    access_error = ensure_can_manage_player(player_id)
+    if access_error:
+        return access_error
     data = request.get_json(silent=True) or {}
     name = (data.get("name") or "").strip()
     text = (data.get("text") or "").strip()
@@ -575,6 +1699,9 @@ def api_update_list(player_id, list_index):
 @app.route("/api/players/<int:player_id>/lists/<int:list_index>", methods=["DELETE"])
 @login_required
 def api_delete_list(player_id, list_index):
+    access_error = ensure_can_manage_player(player_id)
+    if access_error:
+        return access_error
     players = load_players()
     for p in players:
         if p["id"] == player_id:
@@ -597,6 +1724,9 @@ def api_delete_list(player_id, list_index):
 @app.route("/api/players/<int:player_id>/default_list", methods=["POST"])
 @login_required
 def api_set_default_list(player_id):
+    access_error = ensure_can_manage_player(player_id)
+    if access_error:
+        return access_error
     data = request.get_json()
     index = data.get("index")
     if index is None:
@@ -616,6 +1746,9 @@ def api_set_default_list(player_id):
 @app.route("/api/players/<int:player_id>/lists/<int:list_index>/name", methods=["POST"])
 @login_required
 def api_set_list_name(player_id, list_index):
+    access_error = ensure_can_manage_player(player_id)
+    if access_error:
+        return access_error
     data = request.get_json(silent=True) or {}
     name = (data.get("name") or "").strip()
     if not name:
@@ -771,8 +1904,7 @@ def game_matrix_page(game_id):
 @app.route("/api/games/<int:game_id>/matrix", methods=["GET"])
 @login_required
 def api_get_game_matrix(game_id):
-    games = load_games()
-    game = next((g for g in games if g.get("id") == game_id), None)
+    game = load_game(game_id)
     if not game:
         return jsonify({"error": "Game not found"}), 404
 
@@ -1064,8 +2196,7 @@ def api_save_game_pairings(game_id):
 @app.route("/api/games/<int:game_id>/pairings", methods=["GET"])
 @login_required
 def api_get_game_pairings(game_id):
-    games = load_games()
-    game = next((g for g in games if g.get("id") == game_id), None)
+    game = load_game(game_id)
     if not game:
         return jsonify({"error": "Game not found"}), 404
 
@@ -1073,6 +2204,368 @@ def api_get_game_pairings(game_id):
         "scenario": game.get("scenario"),
         "pairings": game.get("pairings", [])
     })
+
+
+@app.route("/api/games/<int:game_id>/fight-assistant", methods=["POST"])
+@login_required
+def api_fight_assistant(game_id):
+    game = load_game(game_id)
+    if not game:
+        return jsonify({"error": "Game not found"}), 404
+
+    payload = request.get_json(silent=True) or {}
+    pairings = payload.get("pairings", game.get("pairings", []))
+
+    try:
+        ctx = build_fight_solver_context(game, pairings)
+    except ValueError as exc:
+        message = str(exc)
+        if message == "Matrix incomplete: some remaining cells are not filled":
+            return jsonify({"error": message}), 400
+        return jsonify({"error": message}), 400
+
+    response = {
+        "phase": ctx["phase"],
+        "score_map": PAIRING_SCORE_MAP,
+        "remaining_players": ctx["player_infos"],
+        "remaining_armies": ctx["army_infos"],
+        "our_best_defender": None,
+        "guaranteed_score": None,
+        "selected_our_defender": None,
+        "selected_our_defender_score": None,
+        "selected_enemy_defender": None,
+        "suggested_attackers": [],
+        "selected_enemy_attack_pair": [],
+        "suggested_accept_enemy": None,
+        "enemy_should_accept_our": None,
+        "selected_enemy_accept_our": None,
+        "refused_our_attacker": None,
+        "refused_enemy_attacker": None,
+        "our_leftover": None,
+        "their_leftover": None,
+        "projected_score": None,
+        "next_phase": None,
+        "next_our_defender": None,
+        "next_guaranteed_score": None,
+        "apply_plan": [],
+    }
+
+    if ctx["remaining_count"] == 0:
+        response["guaranteed_score"] = 0.0
+        return jsonify(response)
+
+    remaining_locals = tuple(range(ctx["remaining_count"]))
+    our_names = tuple(info["name"] for info in ctx["player_infos"])
+    their_names = tuple(f"{info['player_name']} ({info['faction']})" for info in ctx["army_infos"])
+    score_matrix_key = tuple(tuple(row) for row in ctx["score_matrix"])
+    solver = get_cached_fight_solver(score_matrix_key, our_names, their_names)
+    remaining_mask = solver._mask_from_indices(remaining_locals)
+    summary = solver.recommend_defender(remaining_locals, remaining_locals)
+    recommended_our_defender_local = summary["best_defender"]
+    our_defender_local = recommended_our_defender_local
+    response["our_best_defender"] = ctx["player_infos"][recommended_our_defender_local]
+    response["guaranteed_score"] = round(summary["value"], 1)
+
+    our_defender = payload.get("our_defender")
+    if our_defender is not None:
+        if not isinstance(our_defender, int):
+            return jsonify({"error": "our_defender must be an integer"}), 400
+        selected_local = ctx["local_player_by_id"].get(our_defender)
+        if selected_local is None:
+            return jsonify({"error": "Selected defender is not available in the current round."}), 400
+        our_defender_local = selected_local
+
+    selected_our_defender_score = compute_selected_defender_score(
+        ctx,
+        solver,
+        remaining_locals,
+        remaining_mask,
+        our_defender_local,
+    )
+    response["selected_our_defender"] = ctx["player_infos"][our_defender_local]
+    response["selected_our_defender_score"] = round(selected_our_defender_score, 1)
+
+    enemy_defender = payload.get("enemy_defender")
+    if enemy_defender is None:
+        return jsonify(response)
+    if not isinstance(enemy_defender, int):
+        return jsonify({"error": "enemy_defender must be an integer"}), 400
+
+    enemy_defender_local = ctx["local_army_by_index"].get(enemy_defender)
+    if enemy_defender_local is None:
+        return jsonify({"error": "Selected enemy defender is not available in the current round."}), 400
+
+    response["selected_enemy_defender"] = ctx["army_infos"][enemy_defender_local]
+    defender_detail = solve_defender_branch(
+        ctx,
+        solver,
+        remaining_locals,
+        our_defender_local,
+        enemy_defender_local,
+    )
+    attack_pair_local = tuple(defender_detail["best_attack_pair"])
+    response["suggested_attackers"] = [ctx["player_infos"][idx] for idx in attack_pair_local]
+
+    enemy_attack_pair = payload.get("enemy_attack_pair")
+    if enemy_attack_pair is None:
+        return jsonify(response)
+    if not isinstance(enemy_attack_pair, list):
+        return jsonify({"error": "enemy_attack_pair must be a list"}), 400
+    if len(enemy_attack_pair) != 2 or len(set(enemy_attack_pair)) != 2 or not all(isinstance(x, int) for x in enemy_attack_pair):
+        return jsonify({"error": "enemy_attack_pair must contain exactly two distinct opponent armies"}), 400
+    if enemy_defender in enemy_attack_pair:
+        return jsonify({"error": "The enemy defender cannot also be part of the enemy attack pair."}), 400
+
+    enemy_attack_pair_local = []
+    for army_index in sorted(enemy_attack_pair):
+        local_idx = ctx["local_army_by_index"].get(army_index)
+        if local_idx is None:
+            return jsonify({"error": "One selected enemy attacker is not available in the current round."}), 400
+        enemy_attack_pair_local.append(local_idx)
+    enemy_attack_pair_local = tuple(enemy_attack_pair_local)
+
+    attack_detail = defender_detail["by_enemy_attack_pair"].get(enemy_attack_pair_local)
+    if attack_detail is None:
+        return jsonify({"error": "Invalid enemy attack pair for the current defender state."}), 400
+
+    accepted_enemy_local = attack_detail["best_accept"]
+    recommended_accepted_our_local = attack_detail["enemy_best_accept"]
+    accepted_our_local = recommended_accepted_our_local
+    accepted_our_attacker = payload.get("accepted_our_attacker")
+    if accepted_our_attacker is not None:
+        if not isinstance(accepted_our_attacker, int):
+            return jsonify({"error": "accepted_our_attacker must be an integer"}), 400
+        override_local = ctx["local_player_by_id"].get(accepted_our_attacker)
+        if override_local is None or override_local not in attack_pair_local:
+            return jsonify({"error": "accepted_our_attacker must be one of the suggested attackers."}), 400
+        accepted_our_local = override_local
+
+    refused_enemy_local = other_of_pair(enemy_attack_pair_local, accepted_enemy_local)
+    refused_our_local = other_of_pair(attack_pair_local, accepted_our_local)
+
+    response["selected_enemy_attack_pair"] = [ctx["army_infos"][idx] for idx in enemy_attack_pair_local]
+    response["suggested_accept_enemy"] = ctx["army_infos"][accepted_enemy_local]
+    response["enemy_should_accept_our"] = ctx["player_infos"][recommended_accepted_our_local]
+    response["selected_enemy_accept_our"] = ctx["player_infos"][accepted_our_local]
+    response["refused_enemy_attacker"] = ctx["army_infos"][refused_enemy_local]
+    response["refused_our_attacker"] = ctx["player_infos"][refused_our_local]
+
+    slot_numbers = ctx["phase"]["slot_numbers"]
+    if ctx["remaining_count"] == 4:
+        our_leftover_local = attack_detail["our_forgotten"]
+        their_leftover_local = attack_detail["their_forgotten"]
+        response["our_leftover"] = ctx["player_infos"][our_leftover_local]
+        response["their_leftover"] = ctx["army_infos"][their_leftover_local]
+        response["projected_score"] = round(
+            solver.matchup_score(our_defender_local, accepted_enemy_local)
+            + solver.matchup_score(accepted_our_local, enemy_defender_local)
+            + solver.matchup_score(refused_our_local, refused_enemy_local)
+            + solver.matchup_score(our_leftover_local, their_leftover_local),
+            1,
+        )
+        response["next_phase"] = FIGHT_PHASE_BY_REMAINING[0]
+        response["next_guaranteed_score"] = 0.0
+        response["apply_plan"] = [
+            build_solver_plan_item(slot_numbers[0], ctx["player_infos"][our_defender_local], ctx["army_infos"][accepted_enemy_local]),
+            build_solver_plan_item(slot_numbers[1], ctx["player_infos"][accepted_our_local], ctx["army_infos"][enemy_defender_local]),
+            build_solver_plan_item(slot_numbers[2], ctx["player_infos"][refused_our_local], ctx["army_infos"][refused_enemy_local]),
+            build_solver_plan_item(slot_numbers[3], ctx["player_infos"][our_leftover_local], ctx["army_infos"][their_leftover_local]),
+        ]
+    else:
+        next_ours = tuple(sorted(
+            idx for idx in range(ctx["remaining_count"])
+            if idx not in {our_defender_local, accepted_our_local}
+        ))
+        next_theirs = tuple(sorted(
+            idx for idx in range(ctx["remaining_count"])
+            if idx not in {enemy_defender_local, accepted_enemy_local}
+        ))
+        next_summary = solver.recommend_defender(next_ours, next_theirs)
+        response["projected_score"] = round(
+            solver.matchup_score(our_defender_local, accepted_enemy_local)
+            + solver.matchup_score(accepted_our_local, enemy_defender_local)
+            + next_summary["value"],
+            1,
+        )
+        response["next_phase"] = FIGHT_PHASE_BY_REMAINING[len(next_ours)]
+        response["next_our_defender"] = ctx["player_infos"][next_summary["best_defender"]]
+        response["next_guaranteed_score"] = round(next_summary["value"], 1)
+        response["apply_plan"] = [
+            build_solver_plan_item(slot_numbers[0], ctx["player_infos"][our_defender_local], ctx["army_infos"][accepted_enemy_local]),
+            build_solver_plan_item(slot_numbers[1], ctx["player_infos"][accepted_our_local], ctx["army_infos"][enemy_defender_local]),
+        ]
+
+    return jsonify(response)
+
+
+@app.route("/api/games/<int:game_id>/fight-assistant-report", methods=["POST"])
+@login_required
+def api_fight_assistant_report(game_id):
+    game = load_game(game_id)
+    if not game:
+        return jsonify({"error": "Game not found"}), 404
+
+    payload = request.get_json(silent=True) or {}
+    pairings = payload.get("pairings", game.get("pairings", []))
+
+    try:
+        ctx = build_fight_solver_context(game, pairings)
+    except ValueError as exc:
+        return jsonify({"error": str(exc)}), 400
+
+    response = {
+        "phase": ctx["phase"],
+        "recommended_our_defender": None,
+        "guaranteed_score": None,
+        "selected_our_defender": None,
+        "selected_our_defender_score": None,
+        "scenario_count": 0,
+        "displayed_scenario_count": 0,
+        "scenarios": [],
+        "report_text": "",
+    }
+
+    if ctx["remaining_count"] == 0:
+        response["guaranteed_score"] = 0.0
+        response["report_text"] = "Round complete.\nAll games are already assigned."
+        return jsonify(response)
+
+    remaining_locals = tuple(range(ctx["remaining_count"]))
+    our_names = tuple(info["name"] for info in ctx["player_infos"])
+    their_names = tuple(f"{info['player_name']} ({info['faction']})" for info in ctx["army_infos"])
+    score_matrix_key = tuple(tuple(row) for row in ctx["score_matrix"])
+    solver = get_cached_fight_solver(score_matrix_key, our_names, their_names)
+    remaining_mask = solver._mask_from_indices(remaining_locals)
+    summary = solver.recommend_defender(remaining_locals, remaining_locals)
+
+    recommended_our_defender_local = summary["best_defender"]
+    our_defender_local = recommended_our_defender_local
+
+    report_first_defender_local = None
+    report_first_defender = payload.get("report_first_defender")
+    if report_first_defender is not None:
+        if not isinstance(report_first_defender, int):
+            return jsonify({"error": "report_first_defender must be an integer"}), 400
+        report_first_defender_local = ctx["local_player_by_id"].get(report_first_defender)
+        if report_first_defender_local is None:
+            return jsonify({"error": "Forced first-defense player is not available in the current round."}), 400
+
+    report_second_defender_local = None
+    report_second_defender = payload.get("report_second_defender")
+    if report_second_defender is not None:
+        if not isinstance(report_second_defender, int):
+            return jsonify({"error": "report_second_defender must be an integer"}), 400
+        report_second_defender_local = ctx["local_player_by_id"].get(report_second_defender)
+        if report_second_defender_local is None:
+            return jsonify({"error": "Forced second-defense player is not available in the current round."}), 400
+
+    report_enemy_first_defender_local = None
+    report_enemy_first_defender = payload.get("report_enemy_first_defender")
+    if report_enemy_first_defender is not None:
+        if not isinstance(report_enemy_first_defender, int):
+            return jsonify({"error": "report_enemy_first_defender must be an integer"}), 400
+        report_enemy_first_defender_local = ctx["local_army_by_index"].get(report_enemy_first_defender)
+        if report_enemy_first_defender_local is None:
+            return jsonify({"error": "Forced opponent first-defense codex is not available in the current round."}), 400
+
+    report_enemy_second_defender_local = None
+    report_enemy_second_defender = payload.get("report_enemy_second_defender")
+    if report_enemy_second_defender is not None:
+        if not isinstance(report_enemy_second_defender, int):
+            return jsonify({"error": "report_enemy_second_defender must be an integer"}), 400
+        report_enemy_second_defender_local = ctx["local_army_by_index"].get(report_enemy_second_defender)
+        if report_enemy_second_defender_local is None:
+            return jsonify({"error": "Forced opponent second-defense codex is not available in the current round."}), 400
+
+    our_defender = payload.get("our_defender")
+    if our_defender is not None:
+        if not isinstance(our_defender, int):
+            return jsonify({"error": "our_defender must be an integer"}), 400
+        selected_local = ctx["local_player_by_id"].get(our_defender)
+        if selected_local is None:
+            return jsonify({"error": "Selected defender is not available in the current round."}), 400
+        our_defender_local = selected_local
+
+    if ctx["remaining_count"] == 8 and report_first_defender_local is not None:
+        our_defender_local = report_first_defender_local
+    elif ctx["remaining_count"] == 6 and report_second_defender_local is not None:
+        our_defender_local = report_second_defender_local
+
+    selected_our_defender_score = compute_selected_defender_score(
+        ctx,
+        solver,
+        remaining_locals,
+        remaining_mask,
+        our_defender_local,
+    )
+
+    response["recommended_our_defender"] = ctx["player_infos"][recommended_our_defender_local]
+    response["guaranteed_score"] = round(summary["value"], 1)
+    response["selected_our_defender"] = ctx["player_infos"][our_defender_local]
+    response["selected_our_defender_score"] = round(selected_our_defender_score, 1)
+
+    forced_our_defs_by_remaining = {}
+    if ctx["remaining_count"] in {8, 6}:
+        forced_our_defs_by_remaining[ctx["remaining_count"]] = our_defender_local
+    if ctx["remaining_count"] == 8 and report_second_defender_local is not None:
+        forced_our_defs_by_remaining[6] = report_second_defender_local
+
+    forced_enemy_defs_by_remaining = {}
+    if ctx["remaining_count"] == 8 and report_enemy_first_defender_local is not None:
+        forced_enemy_defs_by_remaining[8] = report_enemy_first_defender_local
+    if ctx["remaining_count"] in {8, 6} and report_enemy_second_defender_local is not None:
+        forced_enemy_defs_by_remaining[6] = report_enemy_second_defender_local
+
+    scenarios = build_mirror_scenarios(
+        ctx,
+        solver,
+        remaining_locals,
+        remaining_locals,
+        forced_our_defs_by_remaining=forced_our_defs_by_remaining,
+        forced_enemy_defs_by_remaining=forced_enemy_defs_by_remaining,
+    )
+
+    for scenario in scenarios:
+        scenario["band"] = scenario_band(scenario["score"], selected_our_defender_score)
+
+    scenarios.sort(key=lambda item: item["score"])
+
+    response["scenario_count"] = len(scenarios)
+    response["displayed_scenario_count"] = min(len(scenarios), MIRROR_REPORT_SCENARIO_LIMIT)
+    response["scenarios"] = scenarios
+    response["report_text"] = build_mirror_report_text(
+        ctx,
+        {
+            "recommended_our_defender": ctx["player_infos"][recommended_our_defender_local],
+            "guaranteed_score": round(summary["value"], 1),
+        },
+        ctx["player_infos"][our_defender_local],
+        round(selected_our_defender_score, 1),
+        scenarios,
+        {
+            "first_label": (
+                format_report_player(ctx["player_infos"][report_first_defender_local])
+                if report_first_defender_local is not None and ctx["remaining_count"] == 8
+                else None
+            ),
+            "second_label": (
+                format_report_player(ctx["player_infos"][report_second_defender_local])
+                if report_second_defender_local is not None and ctx["remaining_count"] in {8, 6}
+                else None
+            ),
+            "enemy_first_label": (
+                format_report_army(ctx["army_infos"][report_enemy_first_defender_local])
+                if report_enemy_first_defender_local is not None and ctx["remaining_count"] == 8
+                else None
+            ),
+            "enemy_second_label": (
+                format_report_army(ctx["army_infos"][report_enemy_second_defender_local])
+                if report_enemy_second_defender_local is not None and ctx["remaining_count"] in {8, 6}
+                else None
+            ),
+        },
+    )
+    return jsonify(response)
 
 
 @app.route("/layouts/<path:filename>")
@@ -1132,7 +2625,6 @@ def api_optimize_pairing(game_id):
     if not game:
         return jsonify({"error": "Game not found"}), 404
 
-    # Only active players (same logic as your matrix API)
     all_players = load_players()
     roster_ids = game.get("player_ids") or []
 
@@ -1143,9 +2635,8 @@ def api_optimize_pairing(game_id):
     armies = game.get("armies", [])
     matrix = game.get("matrix", {})  # key "playerId-armyIndex" -> state
 
-    # Need exactly 8 and 8 for pairing optimization
     if len(players) != 8:
-        return jsonify({"error": f"Need exactly 8 active players (found {len(players)})"}), 400
+        return jsonify({"error": f"Need exactly 8 roster players (found {len(players)})"}), 400
     if len(armies) != 8:
         return jsonify({"error": f"Need exactly 8 opponent codex (found {len(armies)})"}), 400
 
@@ -1264,17 +2755,7 @@ def api_report():
     players = load_players()
     by_id = {p.get("id"): p for p in players if isinstance(p, dict)}
 
-    # Expected score mapping (same as your JS)
-    STATE_TO_EXPECTED = {
-        "HELP": 3.0,
-        "LOOSE": 6.5,
-        "S_LOOSE": 9.0,
-        "S_WIN": 11.0,
-        "WIN": 13.5,
-        "EASY": 16.0,
-        "UNKNOWN": 10.0,
-        "GAMBLE": 10.0,
-    }
+    state_to_expected = STATE_TO_SCORE
 
     # Aggregate per player
     stats = {}  # pid -> dict
@@ -1321,7 +2802,7 @@ def api_report():
             state = None
             if isinstance(aidx, int):
                 state = matrix.get(f"{pid}-{aidx}")
-                expected = STATE_TO_EXPECTED.get(state) if state else None
+                expected = state_to_expected.get(state) if state else None
 
             if isinstance(expected, (int, float)):
                 d = float(real) - float(expected)
@@ -1385,7 +2866,6 @@ def api_get_player(player_id):
     p.setdefault("lists", [])
     p.setdefault("list_names", [])
     p.setdefault("default_index", None)
-    p.setdefault("active", False)
     p.setdefault("match_history", [])
     return jsonify(p)
 

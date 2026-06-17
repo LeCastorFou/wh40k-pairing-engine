@@ -1,0 +1,393 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Team Access - 40K Pairing</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700&family=Roboto:wght@300;400;500&display=swap');
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: 'Roboto', sans-serif;
+      background: radial-gradient(circle at top, #333 0, #050509 50%, #000 100%);
+      color: #f5f5f5;
+      padding: 2rem;
+      line-height: 1.5;
+    }
+
+    a {
+      color: #e57373;
+      text-decoration: none;
+    }
+
+    a:hover { text-decoration: underline; }
+
+    .layout {
+      max-width: 980px;
+      margin: 0 auto;
+    }
+
+    .top-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 1rem;
+      margin-bottom: 1.5rem;
+      flex-wrap: wrap;
+    }
+
+    .title-block h1 {
+      margin: 0;
+      font-family: 'Cinzel', serif;
+      font-size: 1.7rem;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+    }
+
+    .title-block p {
+      margin: 0.3rem 0 0;
+      font-size: 0.85rem;
+      color: #bbb;
+    }
+
+    .back-link {
+      font-size: 0.85rem;
+      text-transform: uppercase;
+      letter-spacing: 0.16em;
+    }
+
+    .panel {
+      background: linear-gradient(145deg, rgba(10,10,15,0.96), rgba(5,5,8,0.98));
+      border-radius: 14px;
+      border: 1px solid rgba(255,255,255,0.06);
+      padding: 1.25rem 1.5rem;
+      box-shadow: 0 0 28px rgba(0,0,0,0.85);
+      position: relative;
+      overflow: hidden;
+      margin-bottom: 1.2rem;
+    }
+
+    .panel::before {
+      content: "";
+      position: absolute;
+      inset: -40%;
+      background:
+        radial-gradient(circle at 0% 0%, rgba(255,0,0,0.1), transparent 60%),
+        radial-gradient(circle at 100% 100%, rgba(255,255,255,0.04), transparent 55%);
+      opacity: 0.4;
+      pointer-events: none;
+    }
+
+    .panel-inner {
+      position: relative;
+      z-index: 1;
+    }
+
+    .panel-head {
+      display: flex;
+      justify-content: space-between;
+      gap: 1rem;
+      align-items: flex-start;
+      flex-wrap: wrap;
+      margin-bottom: 1rem;
+    }
+
+    h2 {
+      margin: 0 0 0.35rem;
+      font-size: 1rem;
+      text-transform: uppercase;
+      letter-spacing: 0.18em;
+      font-weight: 500;
+    }
+
+    .muted {
+      color: #aaa;
+      font-size: 0.86rem;
+    }
+
+    .team-list {
+      display: grid;
+      gap: 0.65rem;
+    }
+
+    .team-row {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 0.75rem;
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 10px;
+      padding: 0.75rem 0.85rem;
+      background: rgba(0,0,0,0.22);
+    }
+
+    .team-row.is-active {
+      border-color: rgba(102,187,106,0.42);
+      background: rgba(76,175,80,0.09);
+    }
+
+    .team-row strong {
+      display: block;
+      color: #fff;
+      font-weight: 500;
+      letter-spacing: 0.04em;
+    }
+
+    .team-row span {
+      display: block;
+      margin-top: 0.12rem;
+      color: #aaa;
+      font-size: 0.82rem;
+    }
+
+    .tabs {
+      display: flex;
+      gap: 0.55rem;
+      flex-wrap: wrap;
+      margin: 0 0 1rem;
+    }
+
+    .tab-btn,
+    button,
+    .btn {
+      position: relative;
+      border: 1px solid rgba(255,255,255,0.18);
+      border-radius: 999px;
+      padding: 0.55rem 1.05rem;
+      font-size: 0.76rem;
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
+      text-decoration: none;
+      color: #f5f5f5;
+      background: linear-gradient(135deg, #b71c1c, #6d0000);
+      cursor: pointer;
+      box-shadow: 0 0 12px rgba(255,0,0,0.25);
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.45rem;
+    }
+
+    .tab-btn {
+      background: transparent;
+      box-shadow: none;
+      color: #ddd;
+    }
+
+    .tab-btn.active {
+      background: linear-gradient(135deg, #b71c1c, #6d0000);
+      color: #fff;
+      box-shadow: 0 0 18px rgba(255,0,0,0.22);
+    }
+
+    .btn-secondary,
+    button.secondary {
+      background: transparent;
+      box-shadow: none;
+      border-color: rgba(255,255,255,0.18);
+      color: #ddd;
+    }
+
+    button:disabled {
+      opacity: 0.55;
+      cursor: default;
+      box-shadow: none;
+    }
+
+    .field-grid {
+      display: grid;
+      gap: 0.85rem;
+    }
+
+    .stack {
+      display: grid;
+      gap: 0.35rem;
+    }
+
+    label {
+      font-size: 0.74rem;
+      color: #bbb;
+      letter-spacing: 0.14em;
+      text-transform: uppercase;
+    }
+
+    input[type="password"],
+    input[type="text"],
+    select {
+      width: 100%;
+      background: #111;
+      border: 1px solid #444;
+      border-radius: 14px;
+      padding: 0.65rem 0.95rem;
+      color: #f5f5f5;
+      font-size: 0.95rem;
+      outline: none;
+    }
+
+    input[type="password"]:focus,
+    input[type="text"]:focus,
+    select:focus {
+      border-color: #e74c3c;
+    }
+
+    .helper-box {
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 12px;
+      padding: 0.8rem 0.9rem;
+      background: rgba(255,255,255,0.03);
+      color: #bbb;
+      font-size: 0.86rem;
+    }
+
+    .mini {
+      font-size: 0.75rem;
+      color: #999;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+    }
+
+    .hidden { display: none !important; }
+
+    .status {
+      min-height: 1.2rem;
+      margin-top: 0.75rem;
+      color: #bbb;
+      font-size: 0.84rem;
+    }
+
+    .status.error { color: #ff8a80; }
+    .status.success { color: #a5d6a7; }
+
+    @media (max-width: 760px) {
+      body { padding: 1.2rem; }
+      .panel { padding: 1rem; }
+      .team-row {
+        align-items: flex-start;
+        flex-direction: column;
+      }
+      button,
+      .btn { width: 100%; }
+    }
+  </style>
+</head>
+<body>
+  <div class="layout">
+    <div class="top-bar">
+      <div class="title-block">
+        <h1>Team Access</h1>
+        <p>Signed in as {{ auth_context.email }}.</p>
+      </div>
+      <div>
+        <a href="{{ url_for('index') }}" class="back-link">&larr; Back to Command Centre</a>
+      </div>
+    </div>
+
+    <section class="panel">
+      <div class="panel-inner">
+        <div class="panel-head">
+          <div>
+            <h2>Your Teams</h2>
+            <div class="muted">
+              {% if auth_context.ready %}
+                Current team: {{ auth_context.team_name }}.
+              {% else %}
+                Open one of your teams, join one with a password, or create a new team.
+              {% endif %}
+            </div>
+          </div>
+          <button class="secondary" id="account-logout-btn" type="button">Sign Out</button>
+        </div>
+
+        {% if auth_context.memberships %}
+          <div class="team-list">
+            {% for membership in auth_context.memberships %}
+              <div class="team-row{% if auth_context.membership_id == membership.id %} is-active{% endif %}">
+                <div>
+                  <strong>{{ membership.team_name }}</strong>
+                  <span>
+                    {{ membership.role|title }}
+                    {% if membership.player_name %} · {{ membership.player_name }}{% endif %}
+                    {% if auth_context.membership_id == membership.id %} · Active{% endif %}
+                  </span>
+                </div>
+                {% if auth_context.membership_id == membership.id %}
+                  <button class="secondary" type="button" disabled>Active</button>
+                {% else %}
+                  <button class="secondary switch-team-btn" type="button" data-membership-id="{{ membership.id }}">Open Team</button>
+                {% endif %}
+              </div>
+            {% endfor %}
+          </div>
+        {% else %}
+          <div class="muted">No team is linked to this account yet.</div>
+        {% endif %}
+
+        <div class="status" id="team-status"></div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-inner">
+        <div class="panel-head">
+          <div>
+            <h2>Join or Create</h2>
+            <div class="muted">Use a team password to join, or create a new team as captain.</div>
+          </div>
+        </div>
+
+        <div class="tabs">
+          <button class="tab-btn active" id="tab-join-team" type="button">Join Team</button>
+          <button class="tab-btn" id="tab-create-team" type="button">Create Team</button>
+        </div>
+
+        <div id="join-team-fields" class="field-grid">
+          <div class="stack">
+            <label for="team-select">Team to join</label>
+            <select id="team-select"></select>
+          </div>
+          <div class="stack">
+            <label for="team-role">Access role</label>
+            <select id="team-role">
+              <option value="captain">Captain - shared access plus player deletion</option>
+              <option value="player">Player - shared access without player deletion</option>
+            </select>
+            <div class="muted">Choose captain only if this account should be able to delete players. The team password is still required.</div>
+          </div>
+          <div class="helper-box">
+            <div class="mini" style="margin-bottom:0.35rem;">What happens when you join</div>
+            The app creates or links a player sheet from your display name. Every team member can use the team tools; only captains can delete players.
+          </div>
+          <div class="stack">
+            <label for="team-password">Team password</label>
+            <input id="team-password" type="password" placeholder="Team password" autocomplete="off" />
+          </div>
+          <div>
+            <button id="join-team-btn" type="button">Join Team</button>
+          </div>
+        </div>
+
+        <div id="create-team-fields" class="field-grid hidden">
+          <div class="stack">
+            <label for="new-team-name">Team name</label>
+            <input id="new-team-name" type="text" placeholder="Your team name" />
+          </div>
+          <div class="stack">
+            <label for="new-team-password">Team password</label>
+            <input id="new-team-password" type="password" placeholder="Choose a team password" autocomplete="new-password" />
+          </div>
+          <div>
+            <button id="create-team-btn" type="button">Create Team as Captain</button>
+          </div>
+        </div>
+
+        <div class="status" id="form-status"></div>
+      </div>
+    </section>
+  </div>
+
+  <script src="{{ url_for('static', filename='js/team_access.js') }}"></script>
+</body>
+</html>

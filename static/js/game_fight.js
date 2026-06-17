@@ -15,14 +15,14 @@ const STATE_CONFIG = {
   HELP:    { label: "Help",   bg: "#c62828",     border: "#b71c1c", color: "#fff" }
 };
 
-// Expected score mapping (midpoints of your ranges)
+// Expected score mapping used by the pairing assistant / summary
 const STATE_TO_EXPECTED = {
-  HELP: 3.0,       // <5
-  LOOSE: 6.5,      // 5–8
-  S_LOOSE: 9.0,    // 8–10
-  S_WIN: 11.0,     // 10–12
-  WIN: 13.5,       // 12–15
-  EASY: 16.0,      // 15+
+  HELP: 0.0,
+  LOOSE: 5.0,
+  S_LOOSE: 8.0,
+  S_WIN: 12.0,
+  WIN: 15.0,
+  EASY: 20.0,
   UNKNOWN: 10.0,   // uncertain
   GAMBLE: 10.0,    // uncertain
   NONE: null
@@ -67,6 +67,19 @@ let gScenario = null;
 let gAutoSaveTimer = null;
 let gSaveInFlight = false;
 let gSaveQueued = false;
+let gAssistantOurDefender = null;
+let gAssistantEnemyDefender = null;
+let gAssistantEnemyAttackPair = [];
+let gAssistantAcceptedOurAttacker = null;
+let gAssistantReportFirstDefender = null;
+let gAssistantReportSecondDefender = null;
+let gAssistantReportEnemyFirstDefender = null;
+let gAssistantReportEnemySecondDefender = null;
+let gAssistantLatest = null;
+let gAssistantReportLatest = null;
+let gAssistantRequestSeq = 0;
+let gAssistantReportRequestSeq = 0;
+let gAssistantReportKey = "";
 const AUTO_SAVE_DELAY_MS = 700;
 
 /* =========================
@@ -320,6 +333,643 @@ function renderLayoutsStrip() {
   });
 }
 
+function describePlayerInfo(info) {
+  if (!info) return "—";
+  const name = info.name || "Unknown player";
+  const listName = (info.list_name || "").trim();
+  return listName ? `${name} (${listName})` : name;
+}
+
+function describeArmyInfo(info) {
+  if (!info) return "—";
+  const playerName = info.player_name || `Opponent #${(info.army_index ?? 0) + 1}`;
+  const faction = info.faction || `Army #${(info.army_index ?? 0) + 1}`;
+  return `${playerName} (${faction})`;
+}
+
+function setAssistantStatus(text, mode = "normal") {
+  const el = document.getElementById("assistant-status");
+  if (!el) return;
+  el.textContent = text;
+  el.className = "status-text";
+  if (mode === "error") el.classList.add("error");
+  if (mode === "saved") el.classList.add("saved");
+  if (mode === "unsaved") el.classList.add("unsaved");
+}
+
+function setAssistantReportStatus(text, mode = "normal") {
+  const el = document.getElementById("assistant-report-status");
+  if (!el) return;
+  el.textContent = text;
+  el.className = "assistant-subtle";
+  if (mode === "error") el.classList.add("error");
+  if (mode === "saved") el.classList.add("saved");
+  if (mode === "unsaved") el.classList.add("unsaved");
+}
+
+function renderAssistantReport(data) {
+  const outputEl = document.getElementById("assistant-report-output");
+  if (!outputEl) return;
+
+  if (!data?.report_text) {
+    outputEl.textContent = "No mirror report generated yet. Click Generate mirror report to analyze the current round with the selected defender override, or with the solver recommendation if no override is set.";
+    return;
+  }
+
+  outputEl.textContent = data.report_text;
+}
+
+function clearAssistantReport() {
+  gAssistantReportLatest = null;
+  gAssistantReportKey = "";
+  renderAssistantReport(null);
+  setAssistantReportStatus("Mirror report is not generated for this state yet. Click Generate mirror report.", "unsaved");
+}
+
+function fillAssistantPlayerSelect(selectEl, players, selectedValue, defaultText, disabled, disabledText = "Not available.") {
+  if (!selectEl) return;
+
+  selectEl.innerHTML = "";
+  const defaultOption = document.createElement("option");
+  defaultOption.value = "";
+  defaultOption.textContent = disabled ? disabledText : defaultText;
+  selectEl.appendChild(defaultOption);
+
+  if (!disabled) {
+    players.forEach(player => {
+      const opt = document.createElement("option");
+      opt.value = String(player.player_id);
+      opt.textContent = describePlayerInfo(player);
+      selectEl.appendChild(opt);
+    });
+  }
+
+  selectEl.value = (typeof selectedValue === "number") ? String(selectedValue) : "";
+  selectEl.disabled = disabled;
+}
+
+function fillAssistantArmySelect(selectEl, armies, selectedValue, defaultText, disabled, disabledText = "Not available.") {
+  if (!selectEl) return;
+
+  selectEl.innerHTML = "";
+  const defaultOption = document.createElement("option");
+  defaultOption.value = "";
+  defaultOption.textContent = disabled ? disabledText : defaultText;
+  selectEl.appendChild(defaultOption);
+
+  if (!disabled) {
+    armies.forEach(army => {
+      const opt = document.createElement("option");
+      opt.value = String(army.army_index);
+      opt.textContent = describeArmyInfo(army);
+      selectEl.appendChild(opt);
+    });
+  }
+
+  selectEl.value = (typeof selectedValue === "number") ? String(selectedValue) : "";
+  selectEl.disabled = disabled;
+}
+
+function buildAssistantReportPayload() {
+  const payload = { pairings: gPairings };
+  if (typeof gAssistantOurDefender === "number") {
+    payload.our_defender = gAssistantOurDefender;
+  }
+  if (typeof gAssistantReportFirstDefender === "number") {
+    payload.report_first_defender = gAssistantReportFirstDefender;
+  }
+  if (typeof gAssistantReportSecondDefender === "number") {
+    payload.report_second_defender = gAssistantReportSecondDefender;
+  }
+  if (typeof gAssistantReportEnemyFirstDefender === "number") {
+    payload.report_enemy_first_defender = gAssistantReportEnemyFirstDefender;
+  }
+  if (typeof gAssistantReportEnemySecondDefender === "number") {
+    payload.report_enemy_second_defender = gAssistantReportEnemySecondDefender;
+  }
+  return payload;
+}
+
+function resetAssistantState() {
+  gAssistantOurDefender = null;
+  gAssistantEnemyDefender = null;
+  gAssistantEnemyAttackPair = [];
+  gAssistantAcceptedOurAttacker = null;
+  gAssistantReportFirstDefender = null;
+  gAssistantReportSecondDefender = null;
+  gAssistantReportEnemyFirstDefender = null;
+  gAssistantReportEnemySecondDefender = null;
+  gAssistantLatest = null;
+  clearAssistantReport();
+}
+
+function createAssistantPill(text) {
+  const pill = document.createElement("span");
+  pill.className = "assistant-pill";
+  pill.textContent = text;
+  return pill;
+}
+
+function renderAssistantScoreMap(scoreMap) {
+  const box = document.getElementById("assistant-score-map");
+  if (!box) return;
+  box.innerHTML = "";
+
+  if (!scoreMap) return;
+
+  [
+    `GD ${scoreMap.grosse_defaite}`,
+    `D ${scoreMap.defaite}`,
+    `PD ${scoreMap.petite_defaite}`,
+    `PV ${scoreMap.petite_victoire}`,
+    `V ${scoreMap.victoire}`,
+    `GV ${scoreMap.grosse_victoire}`,
+  ].forEach(text => box.appendChild(createAssistantPill(text)));
+}
+
+function renderAssistantPreview(plan) {
+  const box = document.getElementById("assistant-preview");
+  if (!box) return;
+  box.innerHTML = "";
+
+  if (!Array.isArray(plan) || !plan.length) {
+    const empty = document.createElement("div");
+    empty.className = "assistant-subtle";
+    empty.textContent = "Select an opponent defender, then the two enemy attackers, to preview the round.";
+    box.appendChild(empty);
+    return;
+  }
+
+  plan.forEach(item => {
+    const row = document.createElement("div");
+    row.className = "assistant-preview-item";
+
+    const left = document.createElement("div");
+    left.textContent = `G${item.game_no} · ${GAME_PHASES[item.game_no - 1] || ""}`;
+
+    const right = document.createElement("div");
+    right.textContent = `${item.player_name} vs ${item.opponent_name} (${item.opponent_faction})`;
+
+    row.appendChild(left);
+    row.appendChild(right);
+    box.appendChild(row);
+  });
+}
+
+function renderAssistant(data) {
+  const phaseEl = document.getElementById("assistant-phase");
+  const ourDefEl = document.getElementById("assistant-our-defender");
+  const guaranteedEl = document.getElementById("assistant-guaranteed");
+  const ourDefenderSelect = document.getElementById("assistant-our-defender-select");
+  const selectedGuaranteedEl = document.getElementById("assistant-selected-guaranteed");
+  const reportFirstDefenderSelect = document.getElementById("assistant-report-first-defender-select");
+  const reportSecondDefenderSelect = document.getElementById("assistant-report-second-defender-select");
+  const reportEnemyFirstDefenderSelect = document.getElementById("assistant-report-enemy-first-defender-select");
+  const reportEnemySecondDefenderSelect = document.getElementById("assistant-report-enemy-second-defender-select");
+  const attackersEl = document.getElementById("assistant-attackers");
+  const acceptEl = document.getElementById("assistant-accept");
+  const enemyAcceptEl = document.getElementById("assistant-enemy-accept");
+  const enemyAcceptSelect = document.getElementById("assistant-enemy-accept-select");
+  const refusedEl = document.getElementById("assistant-refused");
+  const leftoversEl = document.getElementById("assistant-leftovers");
+  const projectedEl = document.getElementById("assistant-projected");
+  const nextPhaseEl = document.getElementById("assistant-next-phase");
+  const nextOurDefenderEl = document.getElementById("assistant-next-our-defender");
+  const defenderSelect = document.getElementById("assistant-enemy-defender-select");
+  const enemyAttackersBox = document.getElementById("assistant-enemy-attackers");
+  const applyBtn = document.getElementById("assistant-apply-btn");
+
+  if (phaseEl) phaseEl.textContent = data?.phase?.label || "—";
+  if (ourDefEl) ourDefEl.textContent = describePlayerInfo(data?.our_best_defender);
+  if (guaranteedEl) guaranteedEl.textContent = (typeof data?.guaranteed_score === "number") ? `${data.guaranteed_score.toFixed(1)} pts` : "—";
+  if (selectedGuaranteedEl) {
+    selectedGuaranteedEl.textContent = (typeof data?.selected_our_defender_score === "number")
+      ? `${data.selected_our_defender_score.toFixed(1)} pts`
+      : "—";
+  }
+  if (attackersEl) {
+    if (Array.isArray(data?.suggested_attackers) && data.suggested_attackers.length) {
+      attackersEl.textContent = data.suggested_attackers.map(describePlayerInfo).join(" + ");
+    } else if (data?.phase?.kind === "complete") {
+      attackersEl.textContent = "Round already complete.";
+    } else {
+      attackersEl.textContent = "Select an opponent defender first.";
+    }
+  }
+  if (acceptEl) acceptEl.textContent = describeArmyInfo(data?.suggested_accept_enemy);
+  if (enemyAcceptEl) enemyAcceptEl.textContent = describePlayerInfo(data?.enemy_should_accept_our);
+  if (enemyAcceptSelect) {
+    enemyAcceptSelect.innerHTML = "";
+
+    const attackers = Array.isArray(data?.suggested_attackers) ? data.suggested_attackers : [];
+    const selectedEnemyPairReady = Array.isArray(data?.selected_enemy_attack_pair) && data.selected_enemy_attack_pair.length === 2;
+    const validPlayerIds = new Set(attackers.map(player => player.player_id));
+    if (!validPlayerIds.has(gAssistantAcceptedOurAttacker)) {
+      gAssistantAcceptedOurAttacker = null;
+    }
+
+    if (!selectedEnemyPairReady || !attackers.length) {
+      const placeholder = document.createElement("option");
+      placeholder.value = "";
+      placeholder.textContent = "Resolve attack pair first…";
+      enemyAcceptSelect.appendChild(placeholder);
+      enemyAcceptSelect.disabled = true;
+    } else {
+      attackers.forEach(player => {
+        const opt = document.createElement("option");
+        opt.value = String(player.player_id);
+        opt.textContent = describePlayerInfo(player);
+        enemyAcceptSelect.appendChild(opt);
+      });
+
+      const selectedPlayerId =
+        data?.selected_enemy_accept_our?.player_id ??
+        gAssistantAcceptedOurAttacker ??
+        data?.enemy_should_accept_our?.player_id;
+      gAssistantAcceptedOurAttacker = (typeof selectedPlayerId === "number") ? selectedPlayerId : null;
+      enemyAcceptSelect.value = (typeof selectedPlayerId === "number") ? String(selectedPlayerId) : "";
+      enemyAcceptSelect.disabled = data?.phase?.kind === "complete";
+    }
+  }
+  if (refusedEl) {
+    if (data?.refused_our_attacker && data?.refused_enemy_attacker) {
+      refusedEl.textContent = `${describePlayerInfo(data.refused_our_attacker)} / ${describeArmyInfo(data.refused_enemy_attacker)}`;
+    } else {
+      refusedEl.textContent = "—";
+    }
+  }
+  if (leftoversEl) {
+    if (data?.our_leftover && data?.their_leftover) {
+      leftoversEl.textContent = `${describePlayerInfo(data.our_leftover)} / ${describeArmyInfo(data.their_leftover)}`;
+    } else if (data?.phase?.kind === "round3") {
+      leftoversEl.textContent = "Select the enemy attack pair to reveal the last table.";
+    } else {
+      leftoversEl.textContent = "Not used in this round.";
+    }
+  }
+  if (projectedEl) projectedEl.textContent = (typeof data?.projected_score === "number") ? `${data.projected_score.toFixed(1)} pts` : "—";
+  if (nextPhaseEl) {
+    if (data?.next_phase?.label) {
+      nextPhaseEl.textContent = data.next_phase.label;
+    } else {
+      nextPhaseEl.textContent = "Resolve this round first.";
+    }
+  }
+  if (nextOurDefenderEl) {
+    if (data?.next_phase?.kind === "complete") {
+      nextOurDefenderEl.textContent = "No next defense.";
+    } else if (data?.next_our_defender) {
+      nextOurDefenderEl.textContent = describePlayerInfo(data.next_our_defender);
+    } else {
+      nextOurDefenderEl.textContent = "—";
+    }
+  }
+
+  renderAssistantScoreMap(data?.score_map);
+  renderAssistantPreview(data?.apply_plan);
+
+  const players = Array.isArray(data?.remaining_players) ? data.remaining_players : [];
+  const armies = Array.isArray(data?.remaining_armies) ? data.remaining_armies : [];
+  const validPlayerIds = new Set(players.map(player => player.player_id));
+  const validArmyIds = new Set(armies.map(army => army.army_index));
+  if (!validPlayerIds.has(gAssistantOurDefender)) {
+    gAssistantOurDefender = null;
+  }
+  if (!validPlayerIds.has(gAssistantReportFirstDefender)) {
+    gAssistantReportFirstDefender = null;
+  }
+  if (!validPlayerIds.has(gAssistantReportSecondDefender)) {
+    gAssistantReportSecondDefender = null;
+  }
+  if (!validArmyIds.has(gAssistantReportEnemyFirstDefender)) {
+    gAssistantReportEnemyFirstDefender = null;
+  }
+  if (!validArmyIds.has(gAssistantReportEnemySecondDefender)) {
+    gAssistantReportEnemySecondDefender = null;
+  }
+
+  const phaseLabel = data?.phase?.label || "";
+  const canForceReportFirst = phaseLabel === "First defense";
+  const canForceReportSecond = phaseLabel === "First defense" || phaseLabel === "Second defense";
+
+  if (ourDefenderSelect) {
+    fillAssistantPlayerSelect(
+      ourDefenderSelect,
+      players,
+      gAssistantOurDefender,
+      "Use suggested defender...",
+      !players.length || data?.phase?.kind === "complete",
+      "No defender available."
+    );
+  }
+
+  if (reportFirstDefenderSelect) {
+    fillAssistantPlayerSelect(
+      reportFirstDefenderSelect,
+      players,
+      gAssistantReportFirstDefender,
+      "Use current first defense choice...",
+      !players.length || !canForceReportFirst,
+      phaseLabel === "First defense" ? "No defender available." : "First defense already locked."
+    );
+  }
+
+  if (reportSecondDefenderSelect) {
+    fillAssistantPlayerSelect(
+      reportSecondDefenderSelect,
+      players,
+      gAssistantReportSecondDefender,
+      "Use solver on second defense...",
+      !players.length || !canForceReportSecond,
+      canForceReportSecond ? "No defender available." : "Second defense already locked."
+    );
+  }
+
+  if (reportEnemyFirstDefenderSelect) {
+    fillAssistantArmySelect(
+      reportEnemyFirstDefenderSelect,
+      armies,
+      gAssistantReportEnemyFirstDefender,
+      "Use mirror opponent first defense...",
+      !armies.length || !canForceReportFirst,
+      phaseLabel === "First defense" ? "No codex available." : "First defense already locked."
+    );
+  }
+
+  if (reportEnemySecondDefenderSelect) {
+    fillAssistantArmySelect(
+      reportEnemySecondDefenderSelect,
+      armies,
+      gAssistantReportEnemySecondDefender,
+      "Use mirror opponent second defense...",
+      !armies.length || !canForceReportSecond,
+      canForceReportSecond ? "No codex available." : "Second defense already locked."
+    );
+  }
+
+  if (defenderSelect) {
+    const previousValue = gAssistantEnemyDefender;
+    defenderSelect.innerHTML = "";
+
+    const defaultOption = document.createElement("option");
+    defaultOption.value = "";
+    defaultOption.textContent = "Choose opponent defender…";
+    defenderSelect.appendChild(defaultOption);
+
+    const availableIndices = new Set(armies.map(army => army.army_index));
+    if (!availableIndices.has(previousValue)) {
+      gAssistantEnemyDefender = null;
+      gAssistantEnemyAttackPair = [];
+      gAssistantAcceptedOurAttacker = null;
+    }
+
+    armies.forEach(army => {
+      const opt = document.createElement("option");
+      opt.value = String(army.army_index);
+      opt.textContent = describeArmyInfo(army);
+      defenderSelect.appendChild(opt);
+    });
+
+    defenderSelect.value = (typeof gAssistantEnemyDefender === "number") ? String(gAssistantEnemyDefender) : "";
+    defenderSelect.disabled = !armies.length || data?.phase?.kind === "complete";
+  }
+
+  if (enemyAttackersBox) {
+    enemyAttackersBox.innerHTML = "";
+
+    const armies = Array.isArray(data?.remaining_armies) ? data.remaining_armies : [];
+    const selectable = armies.filter(army => army.army_index !== gAssistantEnemyDefender);
+    const validSelections = gAssistantEnemyAttackPair.filter(idx => selectable.some(army => army.army_index === idx));
+    gAssistantEnemyAttackPair = validSelections;
+
+    if (data?.phase?.kind === "complete") {
+      const msg = document.createElement("div");
+      msg.className = "assistant-subtle";
+      msg.textContent = "All games are already assigned.";
+      enemyAttackersBox.appendChild(msg);
+    } else if (typeof gAssistantEnemyDefender !== "number") {
+      const msg = document.createElement("div");
+      msg.className = "assistant-subtle";
+      msg.textContent = "Pick the opponent defender to enable this step.";
+      enemyAttackersBox.appendChild(msg);
+    } else {
+      selectable.forEach(army => {
+        const label = document.createElement("label");
+        label.className = "assistant-check";
+
+        const checkbox = document.createElement("input");
+        checkbox.type = "checkbox";
+        checkbox.checked = gAssistantEnemyAttackPair.includes(army.army_index);
+        checkbox.addEventListener("change", () => {
+          if (checkbox.checked) {
+            if (gAssistantEnemyAttackPair.length >= 2) {
+              checkbox.checked = false;
+              setAssistantStatus("Select exactly two enemy attackers.", "unsaved");
+              return;
+            }
+            gAssistantEnemyAttackPair = [...gAssistantEnemyAttackPair, army.army_index].sort((a, b) => a - b);
+          } else {
+            gAssistantEnemyAttackPair = gAssistantEnemyAttackPair.filter(idx => idx !== army.army_index);
+          }
+          gAssistantAcceptedOurAttacker = null;
+          refreshAssistantAdvice();
+        });
+
+        const text = document.createElement("span");
+        text.textContent = describeArmyInfo(army);
+
+        label.appendChild(checkbox);
+        label.appendChild(text);
+        enemyAttackersBox.appendChild(label);
+      });
+    }
+  }
+
+  if (applyBtn) {
+    applyBtn.disabled = !(Array.isArray(data?.apply_plan) && data.apply_plan.length);
+  }
+}
+
+function applyAssistantPlan(plan) {
+  if (!Array.isArray(plan) || !plan.length) return;
+  if (!gScenario) {
+    alert("Select a Scenario first.");
+    return;
+  }
+
+  const targetGames = new Set(plan.map(item => item.game_no));
+  const targetPlayers = new Set(plan.map(item => item.player_id));
+  const targetArmies = new Set(plan.map(item => item.army_index));
+
+  gPairings.forEach(slot => {
+    if (!targetGames.has(slot.game_no)) {
+      if (targetPlayers.has(slot.player_id) || targetArmies.has(slot.army_index)) {
+        slot.player_id = null;
+        slot.army_index = null;
+        slot.real_score = null;
+      }
+    }
+  });
+
+  plan.forEach(item => {
+    const slot = gPairings.find(s => s.game_no === item.game_no);
+    if (!slot) return;
+    const pairingChanged = slot.player_id !== item.player_id || slot.army_index !== item.army_index;
+    slot.player_id = item.player_id;
+    slot.army_index = item.army_index;
+    if (pairingChanged) slot.real_score = null;
+  });
+
+  buildMatrixTable();
+  refreshGameCards();
+  refreshSummaryTable();
+  refreshAllLayoutDropdowns();
+  markPairingsDirty();
+
+  const missingLayouts = plan
+    .map(item => gPairings.find(s => s.game_no === item.game_no))
+    .filter(slot => slot && !slot.layout_n)
+    .map(slot => slot.game_no);
+
+  if (missingLayouts.length) {
+    const suffix = missingLayouts.length === 1 ? "" : "s";
+    setFightStatus(
+      `Suggested round applied. Choose layout${suffix} for Game${suffix} ${missingLayouts.join(", ")}.`,
+      "unsaved"
+    );
+  } else {
+    setFightStatus("Suggested round applied. Save when ready.", "unsaved");
+  }
+
+  const nextSlot =
+    gPairings.find(s => !s.player_id || typeof s.army_index !== "number");
+  if (nextSlot) {
+    gActiveSlot = nextSlot.game_no;
+    renderLayoutsStrip();
+  }
+
+  resetAssistantState();
+  refreshGameCards();
+  refreshAssistantAdvice();
+}
+
+async function refreshAssistantAdvice() {
+  const phaseEl = document.getElementById("assistant-phase");
+  if (!phaseEl) return;
+
+  const requestSeq = ++gAssistantRequestSeq;
+  setAssistantStatus("Computing advice...");
+
+  const payload = { pairings: gPairings };
+  if (typeof gAssistantOurDefender === "number") {
+    payload.our_defender = gAssistantOurDefender;
+  }
+  if (typeof gAssistantEnemyDefender === "number") {
+    payload.enemy_defender = gAssistantEnemyDefender;
+  }
+  if (gAssistantEnemyAttackPair.length === 2) {
+    payload.enemy_attack_pair = [...gAssistantEnemyAttackPair].sort((a, b) => a - b);
+  }
+  if (typeof gAssistantAcceptedOurAttacker === "number") {
+    payload.accepted_our_attacker = gAssistantAcceptedOurAttacker;
+  }
+
+  try {
+    const res = await fetch(`/api/games/${window.GAME_ID}/fight-assistant`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+
+    if (requestSeq !== gAssistantRequestSeq) return;
+
+    if (!res.ok) {
+      gAssistantLatest = null;
+      renderAssistant(null);
+      clearAssistantReport();
+      setAssistantStatus(data.error || "Failed to compute pairing advice.", "error");
+      return;
+    }
+
+    gAssistantLatest = data;
+    renderAssistant(data);
+
+    if (data.phase?.kind === "complete") {
+      setAssistantStatus("All 8 games are already assigned.", "saved");
+    } else if (!data.selected_enemy_defender) {
+      setAssistantStatus("Pick the opponent defender to get the recommended attack pair.");
+    } else if (!(Array.isArray(data.selected_enemy_attack_pair) && data.selected_enemy_attack_pair.length === 2)) {
+      setAssistantStatus("Select the two enemy attackers shown on your defender.");
+    } else if (data.next_phase?.kind && data.next_phase.kind !== "complete") {
+      setAssistantStatus(`Round resolved. Apply it to continue with ${data.next_phase.label}.`);
+    } else if (data.next_phase?.kind === "complete") {
+      setAssistantStatus("Final round resolved. Apply it to lock the last games.");
+    } else {
+      setAssistantStatus("Solver recommendation ready.");
+    }
+  } catch (err) {
+    console.error(err);
+    if (requestSeq !== gAssistantRequestSeq) return;
+    gAssistantLatest = null;
+    renderAssistant(null);
+    clearAssistantReport();
+    setAssistantStatus("Network or server error while computing pairing advice.", "error");
+  }
+}
+
+async function generateAssistantReport(options = {}) {
+  const { force = false } = options;
+  const phaseEl = document.getElementById("assistant-phase");
+  if (!phaseEl) return;
+
+  const payload = buildAssistantReportPayload();
+  const reportKey = JSON.stringify(payload);
+  if (!force && reportKey === gAssistantReportKey && gAssistantReportLatest) {
+    return;
+  }
+
+  const requestSeq = ++gAssistantReportRequestSeq;
+  setAssistantReportStatus("Updating mirror scenarios...");
+
+  try {
+    const res = await fetch(`/api/games/${window.GAME_ID}/fight-assistant-report`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(payload)
+    });
+    const data = await res.json();
+
+    if (requestSeq !== gAssistantReportRequestSeq) return;
+
+    if (!res.ok) {
+      gAssistantReportLatest = null;
+      gAssistantReportKey = "";
+      renderAssistantReport(null);
+      setAssistantReportStatus(data.error || "Failed to generate mirror report.", "error");
+      return;
+    }
+
+    gAssistantReportLatest = data;
+    gAssistantReportKey = reportKey;
+    renderAssistantReport(data);
+    const displayedCount = typeof data.displayed_scenario_count === "number"
+      ? data.displayed_scenario_count
+      : data.scenario_count;
+    setAssistantReportStatus(
+      `Loaded ${displayedCount} detailed mirror scenarios from ${data.scenario_count} branch lines.`,
+      "saved"
+    );
+  } catch (err) {
+    console.error(err);
+    if (requestSeq !== gAssistantReportRequestSeq) return;
+    gAssistantReportLatest = null;
+    gAssistantReportKey = "";
+    renderAssistantReport(null);
+    setAssistantReportStatus("Network or server error while generating mirror report.", "error");
+  }
+}
+
 /* =========================
    Rendering: Matrix + Slots + Summary
    ========================= */
@@ -563,6 +1213,8 @@ function buildGameSlots() {
       refreshSummaryTable();
       refreshAllLayoutDropdowns();
       if (gActiveSlot === slot.game_no) renderLayoutsStrip();
+      resetAssistantState();
+      refreshAssistantAdvice();
     });
     card.appendChild(clearBtn);
 
@@ -882,6 +1534,9 @@ function assignPairingToSlot(gameNo, playerId, armyIndex) {
     gPairings.find(s => s.game_no > gameNo && (!s.player_id || typeof s.army_index !== "number")) ||
     gPairings.find(s => s.game_no < gameNo && (!s.player_id || typeof s.army_index !== "number"));
   if (nextSlot) setActiveSlot(nextSlot.game_no);
+
+  resetAssistantState();
+  refreshAssistantAdvice();
 }
 
 /* =========================
@@ -962,6 +1617,8 @@ function resetPairings() {
 
   setFightStatus("Pairings reset. Pick Game 1 and start again.", "unsaved");
   setActiveSlot(1);
+  resetAssistantState();
+  refreshAssistantAdvice();
   scheduleAutoSave();
 }
 
@@ -1017,6 +1674,8 @@ async function loadFightData() {
   gDirtyPairings = false;
   setFightStatus("Loaded. Start with Game 1.");
   setActiveSlot(1);
+  resetAssistantState();
+  refreshAssistantAdvice();
 }
 
 /* =========================
@@ -1029,6 +1688,93 @@ document.addEventListener("DOMContentLoaded", async () => {
 
   const resetBtn = document.getElementById("fight-reset-btn");
   if (resetBtn) resetBtn.addEventListener("click", resetPairings);
+
+  const assistantRefreshBtn = document.getElementById("assistant-refresh-btn");
+  if (assistantRefreshBtn) assistantRefreshBtn.addEventListener("click", refreshAssistantAdvice);
+
+  const assistantApplyBtn = document.getElementById("assistant-apply-btn");
+  if (assistantApplyBtn) {
+    assistantApplyBtn.addEventListener("click", () => {
+      if (Array.isArray(gAssistantLatest?.apply_plan) && gAssistantLatest.apply_plan.length) {
+        applyAssistantPlan(gAssistantLatest.apply_plan);
+      }
+    });
+  }
+
+  const assistantGenerateReportBtn = document.getElementById("assistant-generate-report-btn");
+  if (assistantGenerateReportBtn) {
+    assistantGenerateReportBtn.addEventListener("click", () => {
+      generateAssistantReport({ force: true });
+    });
+  }
+
+  const assistantReportFirstDefenderSelect = document.getElementById("assistant-report-first-defender-select");
+  if (assistantReportFirstDefenderSelect) {
+    assistantReportFirstDefenderSelect.addEventListener("change", () => {
+      gAssistantReportFirstDefender = assistantReportFirstDefenderSelect.value
+        ? parseInt(assistantReportFirstDefenderSelect.value, 10)
+        : null;
+      clearAssistantReport();
+    });
+  }
+
+  const assistantReportSecondDefenderSelect = document.getElementById("assistant-report-second-defender-select");
+  if (assistantReportSecondDefenderSelect) {
+    assistantReportSecondDefenderSelect.addEventListener("change", () => {
+      gAssistantReportSecondDefender = assistantReportSecondDefenderSelect.value
+        ? parseInt(assistantReportSecondDefenderSelect.value, 10)
+        : null;
+      clearAssistantReport();
+    });
+  }
+
+  const assistantReportEnemyFirstDefenderSelect = document.getElementById("assistant-report-enemy-first-defender-select");
+  if (assistantReportEnemyFirstDefenderSelect) {
+    assistantReportEnemyFirstDefenderSelect.addEventListener("change", () => {
+      gAssistantReportEnemyFirstDefender = assistantReportEnemyFirstDefenderSelect.value
+        ? parseInt(assistantReportEnemyFirstDefenderSelect.value, 10)
+        : null;
+      clearAssistantReport();
+    });
+  }
+
+  const assistantReportEnemySecondDefenderSelect = document.getElementById("assistant-report-enemy-second-defender-select");
+  if (assistantReportEnemySecondDefenderSelect) {
+    assistantReportEnemySecondDefenderSelect.addEventListener("change", () => {
+      gAssistantReportEnemySecondDefender = assistantReportEnemySecondDefenderSelect.value
+        ? parseInt(assistantReportEnemySecondDefenderSelect.value, 10)
+        : null;
+      clearAssistantReport();
+    });
+  }
+
+  const assistantDefenderSelect = document.getElementById("assistant-enemy-defender-select");
+  if (assistantDefenderSelect) {
+    assistantDefenderSelect.addEventListener("change", () => {
+      gAssistantEnemyDefender = assistantDefenderSelect.value ? parseInt(assistantDefenderSelect.value, 10) : null;
+      gAssistantEnemyAttackPair = [];
+      gAssistantAcceptedOurAttacker = null;
+      refreshAssistantAdvice();
+    });
+  }
+
+  const assistantOurDefenderSelect = document.getElementById("assistant-our-defender-select");
+  if (assistantOurDefenderSelect) {
+    assistantOurDefenderSelect.addEventListener("change", () => {
+      gAssistantOurDefender = assistantOurDefenderSelect.value ? parseInt(assistantOurDefenderSelect.value, 10) : null;
+      gAssistantAcceptedOurAttacker = null;
+      clearAssistantReport();
+      refreshAssistantAdvice();
+    });
+  }
+
+  const assistantEnemyAcceptSelect = document.getElementById("assistant-enemy-accept-select");
+  if (assistantEnemyAcceptSelect) {
+    assistantEnemyAcceptSelect.addEventListener("change", () => {
+      gAssistantAcceptedOurAttacker = assistantEnemyAcceptSelect.value ? parseInt(assistantEnemyAcceptSelect.value, 10) : null;
+      refreshAssistantAdvice();
+    });
+  }
 
   const scenarioSelect = document.getElementById("scenario-select");
   if (scenarioSelect) {

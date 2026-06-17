@@ -68,6 +68,7 @@ async function fetchPlayers() {
       throw new Error(data.error || "Unable to load players");
     }
     playersCache = Array.isArray(data) ? data : [];
+    pruneRosterDraftAgainstPlayers();
     renderPlayers();
   } catch (err) {
     console.error(err);
@@ -75,13 +76,35 @@ async function fetchPlayers() {
   }
 }
 
-function sortPlayers(players) {
-  return [...players].sort((a, b) => {
-    const aActive = a.active ? 1 : 0;
-    const bActive = b.active ? 1 : 0;
-    if (aActive !== bActive) return bActive - aActive;
-    return (a.name || "").localeCompare(b.name || "");
+function pruneRosterDraftAgainstPlayers() {
+  const validPlayerIds = new Set(
+    playersCache
+      .map(player => player.id)
+      .filter(playerId => typeof playerId === "number")
+  );
+  let changed = false;
+
+  roster = roster.map(slot => {
+    if (!slot || typeof slot !== "object") return null;
+    if (!validPlayerIds.has(slot.player_id)) {
+      changed = true;
+      return null;
+    }
+    return slot;
   });
+
+  if (changed) {
+    localStorage.setItem("pairingapp_roster_draft", JSON.stringify({
+      saved_at: new Date().toISOString(),
+      roster
+    }));
+    renderRoster();
+    setStatus("Removed deleted players from the local roster draft.", "success");
+  }
+}
+
+function sortPlayers(players) {
+  return [...players].sort((a, b) => (a.name || "").localeCompare(b.name || ""));
 }
 
 function buildArchetypeLabel(archetype) {

@@ -284,6 +284,105 @@
       color: #ddd;
       min-height: 40px;
     }
+
+    .assistant-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+      gap: 0.9rem;
+      margin-top: 0.8rem;
+    }
+
+    .assistant-card {
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 14px;
+      padding: 0.8rem;
+      background: rgba(0,0,0,0.3);
+      display: flex;
+      flex-direction: column;
+      gap: 0.55rem;
+    }
+
+    .assistant-label {
+      font-size: 0.68rem;
+      text-transform: uppercase;
+      letter-spacing: 0.16em;
+      color: #aaa;
+    }
+
+    .assistant-value {
+      font-size: 0.92rem;
+      color: #f5f5f5;
+    }
+
+    .assistant-subtle {
+      font-size: 0.78rem;
+      color: #bbb;
+      line-height: 1.45;
+    }
+
+    .assistant-pill-row {
+      display: flex;
+      gap: 0.45rem;
+      flex-wrap: wrap;
+    }
+
+    .assistant-pill {
+      padding: 0.22rem 0.55rem;
+      border-radius: 999px;
+      border: 1px solid rgba(255,255,255,0.14);
+      background: rgba(255,255,255,0.05);
+      font-size: 0.72rem;
+      color: #eee;
+    }
+
+    .assistant-checklist {
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+    }
+
+    .assistant-check {
+      display: flex;
+      align-items: center;
+      gap: 0.45rem;
+      font-size: 0.82rem;
+      color: #ddd;
+    }
+
+    .assistant-preview-list {
+      display: flex;
+      flex-direction: column;
+      gap: 0.4rem;
+    }
+
+    .assistant-preview-item {
+      display: flex;
+      justify-content: space-between;
+      gap: 0.8rem;
+      border-bottom: 1px solid rgba(255,255,255,0.08);
+      padding-bottom: 0.35rem;
+      font-size: 0.82rem;
+      color: #ddd;
+    }
+
+    .assistant-preview-item:last-child {
+      border-bottom: 0;
+      padding-bottom: 0;
+    }
+
+    .assistant-report {
+      margin-top: 0.9rem;
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 14px;
+      background: rgba(0,0,0,0.24);
+      padding: 0.95rem 1rem;
+      white-space: pre-wrap;
+      line-height: 1.5;
+      color: #ededed;
+      font-size: 0.85rem;
+      max-height: 30rem;
+      overflow: auto;
+    }
   </style>
 </head>
 <body>
@@ -365,6 +464,123 @@
         </div>
 
         <div class="games-list" id="games-list-container"></div>
+      </div>
+    </section>
+
+    <section class="panel" style="grid-column: 1 / -1;">
+      <div class="panel-inner">
+        <div class="status-bar">
+          <div>
+            <h2 style="margin-bottom:0.35rem;">Pairing Assistant</h2>
+            <div class="assistant-subtle">Solver-backed suggestions for the current round using the matchup matrix.</div>
+          </div>
+          <div>
+            <button id="assistant-refresh-btn">Refresh advice</button>
+            <button id="assistant-apply-btn" disabled>Apply suggested round</button>
+          </div>
+        </div>
+
+        <div id="assistant-status" class="status-text">Waiting for fight data…</div>
+
+        <div class="assistant-grid">
+          <div class="assistant-card">
+            <div class="assistant-label">Round</div>
+            <div id="assistant-phase" class="assistant-value">—</div>
+            <div class="assistant-label">Score scale</div>
+            <div id="assistant-score-map" class="assistant-pill-row"></div>
+            <div class="assistant-label">Our suggested defender</div>
+            <div id="assistant-our-defender" class="assistant-value">—</div>
+            <div class="assistant-label">We actually defend with</div>
+            <select id="assistant-our-defender-select"
+                    style="background:#111; border:1px solid #444; border-radius:999px; color:#f5f5f5; padding:0.35rem 0.8rem; font-size:0.82rem;">
+              <option value="">Use suggested defender...</option>
+            </select>
+            <div class="assistant-label">Guaranteed team total from this state</div>
+            <div id="assistant-guaranteed" class="assistant-value">—</div>
+            <div class="assistant-label">Guaranteed team total if we keep this defender</div>
+            <div id="assistant-selected-guaranteed" class="assistant-value">—</div>
+          </div>
+
+          <div class="assistant-card">
+            <div class="assistant-label">Opponent defender</div>
+            <select id="assistant-enemy-defender-select"
+                    style="background:#111; border:1px solid #444; border-radius:999px; color:#f5f5f5; padding:0.35rem 0.8rem; font-size:0.82rem;">
+              <option value="">Choose opponent defender…</option>
+            </select>
+            <div class="assistant-label">Recommended attackers</div>
+            <div id="assistant-attackers" class="assistant-value">Select an opponent defender first.</div>
+            <div class="assistant-label">Enemy attack pair</div>
+            <div id="assistant-enemy-attackers" class="assistant-checklist"></div>
+          </div>
+
+          <div class="assistant-card">
+            <div class="assistant-label">Accept on our defense</div>
+            <div id="assistant-accept" class="assistant-value">—</div>
+            <div class="assistant-label">They should accept</div>
+            <div id="assistant-enemy-accept" class="assistant-value">—</div>
+            <div class="assistant-label">They actually accept</div>
+            <select id="assistant-enemy-accept-select"
+                    style="background:#111; border:1px solid #444; border-radius:999px; color:#f5f5f5; padding:0.35rem 0.8rem; font-size:0.82rem;">
+              <option value="">Resolve attack pair first…</option>
+            </select>
+            <div class="assistant-label">Refused attackers</div>
+            <div id="assistant-refused" class="assistant-value">—</div>
+            <div class="assistant-label">Leftovers</div>
+            <div id="assistant-leftovers" class="assistant-value">—</div>
+            <div class="assistant-label">Projected team total</div>
+            <div id="assistant-projected" class="assistant-value">—</div>
+            <div class="assistant-label">After this round</div>
+            <div id="assistant-next-phase" class="assistant-value">Resolve this round first.</div>
+            <div class="assistant-label">Next suggested defender</div>
+            <div id="assistant-next-our-defender" class="assistant-value">—</div>
+            <div class="assistant-label">Round preview</div>
+            <div id="assistant-preview" class="assistant-preview-list"></div>
+          </div>
+        </div>
+
+        <div class="status-bar" style="margin-top:1rem;">
+          <div>
+            <div class="assistant-label">Mirror report</div>
+            <div id="assistant-report-status" class="assistant-subtle">Mirror report is not generated for this state yet. Click Generate mirror report.</div>
+          </div>
+          <div>
+            <button id="assistant-generate-report-btn">Generate mirror report</button>
+          </div>
+        </div>
+        <div class="assistant-grid" style="margin-top:0.7rem;">
+          <div class="assistant-card">
+            <div class="assistant-label">Force first defense in report</div>
+            <select id="assistant-report-first-defender-select"
+                    style="background:#111; border:1px solid #444; border-radius:999px; color:#f5f5f5; padding:0.35rem 0.8rem; font-size:0.82rem;">
+              <option value="">Use current first defense choice...</option>
+            </select>
+          </div>
+          <div class="assistant-card">
+            <div class="assistant-label">Force second defense in report</div>
+            <select id="assistant-report-second-defender-select"
+                    style="background:#111; border:1px solid #444; border-radius:999px; color:#f5f5f5; padding:0.35rem 0.8rem; font-size:0.82rem;">
+              <option value="">Use solver on second defense...</option>
+            </select>
+          </div>
+          <div class="assistant-card">
+            <div class="assistant-label">Force opponent first defense in report</div>
+            <select id="assistant-report-enemy-first-defender-select"
+                    style="background:#111; border:1px solid #444; border-radius:999px; color:#f5f5f5; padding:0.35rem 0.8rem; font-size:0.82rem;">
+              <option value="">Use mirror opponent first defense...</option>
+            </select>
+          </div>
+          <div class="assistant-card">
+            <div class="assistant-label">Force opponent second defense in report</div>
+            <select id="assistant-report-enemy-second-defender-select"
+                    style="background:#111; border:1px solid #444; border-radius:999px; color:#f5f5f5; padding:0.35rem 0.8rem; font-size:0.82rem;">
+              <option value="">Use mirror opponent second defense...</option>
+            </select>
+          </div>
+        </div>
+        <div class="assistant-subtle" style="margin-top:0.55rem;">
+          Leave any field blank to keep the solver or mirror choice. Second-defense overrides are only applied if the selected player or codex is still available when that phase starts.
+        </div>
+        <div id="assistant-report-output" class="assistant-report">No mirror report generated yet. Click Generate mirror report to analyze the current round.</div>
       </div>
     </section>
 

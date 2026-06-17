@@ -138,6 +138,56 @@
       box-shadow: none;
     }
 
+    .captain-roster-form {
+      margin: 0.85rem 0 1rem;
+      padding: 0.9rem;
+      border-radius: 12px;
+      border: 1px solid rgba(255,255,255,0.08);
+      background: rgba(12,12,18,0.9);
+      box-shadow: inset 0 0 0 1px rgba(255,255,255,0.03);
+    }
+
+    .captain-roster-form label {
+      display: block;
+      margin-bottom: 0.35rem;
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.16em;
+      color: #cfcfcf;
+    }
+
+    .captain-roster-form textarea {
+      min-height: 96px;
+      margin-top: 0;
+      font-family: 'Roboto', sans-serif;
+    }
+
+    .captain-roster-actions {
+      display: flex;
+      align-items: center;
+      gap: 0.7rem;
+      flex-wrap: wrap;
+      margin-top: 0.7rem;
+    }
+
+    .captain-roster-actions button {
+      margin-left: 0;
+    }
+
+    .status-text {
+      min-height: 1.2rem;
+      font-size: 0.82rem;
+      color: #bbb;
+    }
+
+    .status-text.success {
+      color: #a5d6a7;
+    }
+
+    .status-text.error {
+      color: #ff8a80;
+    }
+
     #players-container {
       display: grid;
       grid-template-columns: 1fr;
@@ -189,13 +239,15 @@
 
     .lists {
       font-size: 0.9rem;
+      display: flex;
+      flex-direction: column;
+      gap: 0.45rem;
     }
 
     .list-item {
       border-radius: 8px;
       border: 1px solid rgba(255,255,255,0.12);
-      padding: 0.5rem 0.6rem;
-      margin-bottom: 0.5rem;
+      padding: 0.55rem 0.65rem;
       background: rgba(18,18,25,0.92);
     }
 
@@ -219,10 +271,15 @@
       display: flex;
       justify-content: space-between;
       align-items: center;
-      margin-top: 0.4rem;
+      margin-top: 0.2rem;
       font-size: 0.75rem;
       gap: 0.6rem;
       flex-wrap: wrap;
+    }
+
+    .list-item .list-meta:first-child {
+      margin-top: 0;
+      margin-bottom: 0.05rem;
     }
 
     .list-meta label {
@@ -377,20 +434,19 @@
 
     <section class="panel">
       <div class="panel-inner">
-        <h2>Add Player</h2>
-        <div>
-          <input type="text" id="player-name-input" placeholder="Enter player name" />
-          <button id="add-player-btn">Add</button>
-        </div>
-      </div>
-    </section>
-
-    <section class="panel">
-      <div class="panel-inner">
         <h2>Roster</h2>
-        <p id="active-counter" class="empty-text" style="margin-top:0;">
-            Active: 0 / 8
-        </p>
+        <p class="empty-text" style="margin-top:0;">Create managed players for testing, or let real users claim a matching player later when they join the team. Only captains can delete players.</p>
+        <form id="managed-player-form" class="captain-roster-form">
+          <label for="managed-player-names">Managed player names</label>
+          <textarea id="managed-player-names" placeholder="Paste one name per line, or separate names with commas"></textarea>
+          <div class="captain-roster-actions">
+            <button id="managed-player-submit" type="submit">Add Managed Players</button>
+            <div id="managed-player-status" class="status-text"></div>
+          </div>
+        </form>
+        {% if auth_context.role == "player" %}
+          <p class="empty-text" style="margin-top:0;">Player access: every team feature is available except deleting players.</p>
+        {% endif %}
         <div id="players-container">
           <!-- Filled by JS -->
         </div>
@@ -426,6 +482,9 @@
     </div>
   </div>
 
+  <script>
+    window.APP_ACCESS = {{ auth_context | tojson }};
+  </script>
   <script src="{{ url_for('static', filename='js/players.js') }}"></script>
 </body>
 </html>

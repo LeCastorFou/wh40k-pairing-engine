@@ -1,50 +1,38 @@
+const ACCESS = window.APP_ACCESS || {};
+const IS_CAPTAIN = ACCESS.role === "captain";
+
+function canManagePlayer(playerId) {
+  return true;
+}
+
 async function fetchPlayers() {
   const res = await fetch("/api/players");
   return await res.json();
 }
 
-function updateActiveCounter(players) {
-  const el = document.getElementById("active-counter");
-  if (!el) return;
-  const count = players.filter(p => p.active).length;
-  el.textContent = `Active: ${count} / 8`;
-}
-
-async function addPlayer(name) {
+async function createPlayers(names) {
   const res = await fetch("/api/players", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name })
+    body: JSON.stringify({ names })
   });
+  const data = await res.json().catch(() => ({}));
   if (!res.ok) {
-    let msg = "Error adding player";
-    try {
-      const err = await res.json();
-      if (err.error) msg = err.error;
-      if (err.details) msg += ` (${err.details})`;
-    } catch (_) {}
-    alert(msg);
-    return null;
+    const message = data?.error || "Error adding players";
+    const error = new Error(message);
+    error.payload = data;
+    throw error;
   }
-  return await res.json();
-}
-
-async function setPlayerActive(playerId, active) {
-  const res = await fetch(`/api/players/${playerId}/active`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ active })
-  });
-  const data = await res.json();
-  if (!res.ok) throw new Error(data.error || "Failed to update active");
   return data;
 }
 
-
-
-
 async function deletePlayer(id) {
-  await fetch(`/api/players/${id}`, { method: "DELETE" });
+  const res = await fetch(`/api/players/${id}`, { method: "DELETE" });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok) {
+    throw new Error(data.error || "Error deleting player");
+  }
+  return data;
 }
 
 async function addList(playerId, name, text) {
@@ -90,6 +78,22 @@ let gModalState = {
 
 function getModalEl(id) {
   return document.getElementById(id);
+}
+
+function setManagedPlayerStatus(message, tone = "") {
+  const statusEl = getModalEl("managed-player-status");
+  if (!statusEl) return;
+  statusEl.textContent = message;
+  statusEl.className = "status-text";
+  if (tone) statusEl.classList.add(tone);
+}
+
+function parseManagedPlayerNames(rawValue) {
+  if (typeof rawValue !== "string") return [];
+  return rawValue
+    .split(/[\n,;]+/)
+    .map(name => name.trim())
+    .filter(Boolean);
 }
 
 function closeListModal() {
@@ -162,7 +166,13 @@ function renderPlayers(players) {
   const container = document.getElementById("players-container");
   container.innerHTML = "";
 
-  updateActiveCounter(players);
+  if (!Array.isArray(players) || players.length === 0) {
+    const empty = document.createElement("p");
+    empty.className = "empty-text";
+    empty.textContent = "No players yet. Add managed players above or wait for team members to join.";
+    container.appendChild(empty);
+    return;
+  }
 
   players.forEach(player => {
     const card = document.createElement("div");
@@ -171,7 +181,7 @@ function renderPlayers(players) {
     const header = document.createElement("div");
     header.className = "player-header";
 
-    // Left side: name + active checkbox
+    // Left side: name
     const left = document.createElement("div");
     left.style.display = "flex";
     left.style.alignItems = "center";
@@ -188,71 +198,36 @@ function renderPlayers(players) {
     title.addEventListener("mouseenter", () => title.style.textDecoration = "underline");
     title.addEventListener("mouseleave", () => title.style.textDecoration = "none");
 
-    // ✅ ACTIVE CHECKBOX (this is the key)
-    const activeLabel = document.createElement("label");
-    activeLabel.style.display = "inline-flex";
-    activeLabel.style.alignItems = "center";
-    activeLabel.style.gap = "0.35rem";
-    activeLabel.style.fontSize = "0.75rem";
-    activeLabel.style.color = "#bbb";
-    activeLabel.style.textTransform = "uppercase";
-    activeLabel.style.letterSpacing = "0.12em";
-    activeLabel.style.cursor = "pointer";
-
-    const checkbox = document.createElement("input");
-    checkbox.type = "checkbox";
-    checkbox.checked = !!player.active;
-
-    // Disable if already 8 active and this player is not active
-    const activeCount = players.filter(p => p.active).length;
-    if (!player.active && activeCount >= 8) {
-      checkbox.disabled = true;
-      activeLabel.title = "Only 8 players can be active.";
-    }
-
-    checkbox.addEventListener("change", async () => {
-      const wantActive = checkbox.checked;
-
-      // UI-side guard (backend also enforces)
-      const freshActiveCount = players.filter(p => p.active).length;
-      if (wantActive && freshActiveCount >= 8) {
-        checkbox.checked = false;
-        alert("Only 8 players can be active.");
-        return;
-      }
-
-      try {
-        const updated = await setPlayerActive(player.id, wantActive);
-        // update local array
-        player.active = updated.active;
-
-        // Re-fetch to refresh disabled states + counter
-        const updatedPlayers = await fetchPlayers();
-        renderPlayers(updatedPlayers);
-      } catch (e) {
-        checkbox.checked = !wantActive;
-        alert(e.message);
-      }
-    });
-
-    activeLabel.appendChild(checkbox);
-    activeLabel.appendChild(document.createTextNode("Active"));
-
     left.appendChild(title);
-    left.appendChild(activeLabel);
 
     // Right side: delete button
-    const deleteBtn = document.createElement("button");
-    deleteBtn.textContent = "Delete player";
-    deleteBtn.addEventListener("click", async () => {
-      if (!confirm(`Delete player "${player.name}"?`)) return;
-      await deletePlayer(player.id);
-      const updated = await fetchPlayers();
-      renderPlayers(updated);
-    });
-
     header.appendChild(left);
-    header.appendChild(deleteBtn);
+    if (IS_CAPTAIN) {
+      const deleteBtn = document.createElement("button");
+      deleteBtn.textContent = "Delete player";
+      deleteBtn.addEventListener("click", async () => {
+        const confirmed = confirm(
+          `Delete player "${player.name}"?\n\nThis also removes this player from game rosters, matrix cells, pairings, reports, and availability slots.`
+        );
+        if (!confirmed) return;
+
+        deleteBtn.disabled = true;
+        try {
+          const result = await deletePlayer(player.id);
+          const cleanup = result.cleanup || {};
+          const updated = await fetchPlayers();
+          renderPlayers(updated);
+          setManagedPlayerStatus(
+            `Deleted ${player.name}. Cleaned ${cleanup.games_touched || 0} game(s), ${cleanup.pairing_slots_cleared || 0} pairing slot(s), and ${cleanup.calendar_items_removed || 0} calendar item(s).`,
+            "success"
+          );
+        } catch (error) {
+          setManagedPlayerStatus(error.message || "Error deleting player.", "error");
+          deleteBtn.disabled = false;
+        }
+      });
+      header.appendChild(deleteBtn);
+    }
     card.appendChild(header);
 
     // Lists
@@ -293,13 +268,6 @@ function renderPlayers(players) {
 
         listDiv.appendChild(headerRow);
 
-        const helper = document.createElement("div");
-        helper.className = "empty-text";
-        helper.style.fontStyle = "normal";
-        helper.style.marginBottom = "0.55rem";
-        helper.textContent = "List text is handled in a separate modal for readability.";
-        listDiv.appendChild(helper);
-
         const meta = document.createElement("div");
         meta.className = "list-meta";
 
@@ -316,64 +284,67 @@ function renderPlayers(players) {
           });
         });
 
-        const editBtn = document.createElement("button");
-        editBtn.textContent = "Edit";
-        editBtn.addEventListener("click", () => {
-          openListModal({
-            mode: "edit",
-            playerId: player.id,
-            listIndex: idx,
-            listName: currentName,
-            listText: text,
-            playerName: player.name
-          });
-        });
-
-        const defaultLabel = document.createElement("label");
-        const radio = document.createElement("input");
-        radio.type = "radio";
-        radio.name = `default-list-${player.id}`;
-        radio.checked = player.default_index === idx;
-        radio.addEventListener("change", async () => {
-          await setDefaultList(player.id, idx);
-          const updated = await fetchPlayers();
-          renderPlayers(updated);
-        });
-        defaultLabel.appendChild(radio);
-        defaultLabel.appendChild(document.createTextNode(" Default"));
-
-        const deleteListBtn = document.createElement("button");
-        deleteListBtn.textContent = "Delete list";
-        deleteListBtn.addEventListener("click", async () => {
-          if (!confirm("Delete this list?")) return;
-          await deleteList(player.id, idx);
-          const updated = await fetchPlayers();
-          renderPlayers(updated);
-        });
-
         meta.appendChild(viewBtn);
-        meta.appendChild(editBtn);
-        meta.appendChild(defaultLabel);
-        meta.appendChild(deleteListBtn);
+        if (canManagePlayer(player.id)) {
+          const editBtn = document.createElement("button");
+          editBtn.textContent = "Edit";
+          editBtn.addEventListener("click", () => {
+            openListModal({
+              mode: "edit",
+              playerId: player.id,
+              listIndex: idx,
+              listName: currentName,
+              listText: text,
+              playerName: player.name
+            });
+          });
+
+          const defaultLabel = document.createElement("label");
+          const radio = document.createElement("input");
+          radio.type = "radio";
+          radio.name = `default-list-${player.id}`;
+          radio.checked = player.default_index === idx;
+          radio.addEventListener("change", async () => {
+            await setDefaultList(player.id, idx);
+            const updated = await fetchPlayers();
+            renderPlayers(updated);
+          });
+          defaultLabel.appendChild(radio);
+          defaultLabel.appendChild(document.createTextNode(" Default"));
+
+          const deleteListBtn = document.createElement("button");
+          deleteListBtn.textContent = "Delete list";
+          deleteListBtn.addEventListener("click", async () => {
+            if (!confirm("Delete this list?")) return;
+            await deleteList(player.id, idx);
+            const updated = await fetchPlayers();
+            renderPlayers(updated);
+          });
+
+          meta.appendChild(editBtn);
+          meta.appendChild(defaultLabel);
+          meta.appendChild(deleteListBtn);
+        }
         listDiv.appendChild(meta);
 
         listsDiv.appendChild(listDiv);
       });
     }
 
-    const addListBtn = document.createElement("button");
-    addListBtn.textContent = "Add list";
-    addListBtn.addEventListener("click", async () => {
-      openListModal({
-        mode: "add",
-        playerId: player.id,
-        listName: "",
-        listText: "",
-        playerName: player.name
+    if (canManagePlayer(player.id)) {
+      const addListBtn = document.createElement("button");
+      addListBtn.textContent = "Add list";
+      addListBtn.addEventListener("click", async () => {
+        openListModal({
+          mode: "add",
+          playerId: player.id,
+          listName: "",
+          listText: "",
+          playerName: player.name
+        });
       });
-    });
-
-    listsDiv.appendChild(addListBtn);
+      listsDiv.appendChild(addListBtn);
+    }
 
     card.appendChild(listsDiv);
     container.appendChild(card);
@@ -383,22 +354,13 @@ function renderPlayers(players) {
 // ---------- INIT ----------
 
 document.addEventListener("DOMContentLoaded", async () => {
-  const addBtn = document.getElementById("add-player-btn");
-  const nameInput = document.getElementById("player-name-input");
-
-  addBtn.addEventListener("click", async () => {
-    const name = nameInput.value.trim();
-    if (!name) return;
-    await addPlayer(name);
-    nameInput.value = "";
-    const players = await fetchPlayers();
-    renderPlayers(players);
-  });
-
   const modalOverlay = getModalEl("list-modal");
   const modalCloseBtn = getModalEl("list-modal-close");
   const modalCancelBtn = getModalEl("list-modal-cancel");
   const modalSaveBtn = getModalEl("list-modal-save");
+  const managedPlayerForm = getModalEl("managed-player-form");
+  const managedPlayerInput = getModalEl("managed-player-names");
+  const managedPlayerSubmit = getModalEl("managed-player-submit");
 
   if (modalCloseBtn) modalCloseBtn.addEventListener("click", closeListModal);
   if (modalCancelBtn) modalCancelBtn.addEventListener("click", closeListModal);
@@ -412,6 +374,48 @@ document.addEventListener("DOMContentLoaded", async () => {
   document.addEventListener("keydown", (event) => {
     if (event.key === "Escape") closeListModal();
   });
+
+  if (managedPlayerForm && managedPlayerInput && managedPlayerSubmit) {
+    managedPlayerForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+
+      const names = parseManagedPlayerNames(managedPlayerInput.value);
+      if (names.length === 0) {
+        setManagedPlayerStatus("Enter at least one player name.", "error");
+        managedPlayerInput.focus();
+        return;
+      }
+
+      managedPlayerSubmit.disabled = true;
+      setManagedPlayerStatus("Creating managed players...");
+
+      try {
+        const result = await createPlayers(names);
+        const players = await fetchPlayers();
+        renderPlayers(players);
+
+        if ((result.created || []).length > 0) {
+          managedPlayerInput.value = "";
+        }
+
+        const skippedNames = (result.skipped || []).map(entry => entry.name).filter(Boolean);
+        let message = `Created ${(result.created || []).length} managed player(s).`;
+        if (skippedNames.length > 0) {
+          message += ` Skipped duplicates: ${skippedNames.join(", ")}.`;
+        }
+        setManagedPlayerStatus(message, "success");
+      } catch (error) {
+        const skippedNames = (error.payload?.skipped || []).map(entry => entry.name).filter(Boolean);
+        let message = error.message || "Error adding players.";
+        if (skippedNames.length > 0) {
+          message += ` Skipped: ${skippedNames.join(", ")}.`;
+        }
+        setManagedPlayerStatus(message, "error");
+      } finally {
+        managedPlayerSubmit.disabled = false;
+      }
+    });
+  }
 
   const players = await fetchPlayers();
   renderPlayers(players);

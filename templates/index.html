@@ -340,7 +340,7 @@
       z-index: 1000;
     }
     .modal{
-      width: min(520px, 96vw);
+      width: min(680px, 96vw);
       background: rgba(10,10,15,0.98);
       border: 1px solid rgba(255,255,255,0.12);
       border-radius: 16px;
@@ -367,25 +367,123 @@
       text-transform: uppercase;
     }
     .modal p{ margin: 0.35rem 0 0.95rem; color:#bbb; font-size: 0.9rem; line-height:1.5; }
+    .step-number{
+      width:1.65rem;
+      height:1.65rem;
+      border-radius:999px;
+      display:inline-flex;
+      align-items:center;
+      justify-content:center;
+      flex:0 0 auto;
+      border:1px solid rgba(231,76,60,0.55);
+      color:#ffcdd2;
+      background:rgba(183,28,28,0.2);
+      font-size:0.72rem;
+      letter-spacing:0;
+    }
+    .section-heading{
+      display:flex;
+      align-items:center;
+      gap:0.55rem;
+      margin:0.75rem 0 0.45rem;
+      color:#f5f5f5;
+      font-size:0.86rem;
+      letter-spacing:0.16em;
+      text-transform:uppercase;
+    }
     .row{ display:flex; gap:0.6rem; align-items:center; flex-wrap:wrap; }
-    input[type="password"]{
+    input[type="password"],
+    input[type="text"],
+    input[type="email"],
+    select{
       flex:1;
       background:#111;
       border:1px solid #444;
-      border-radius:999px;
+      border-radius:14px;
       padding:0.65rem 0.95rem;
       color:#f5f5f5;
       font-size: 0.95rem;
       outline:none;
       min-width: 220px;
     }
-    input[type="password"]:focus{ border-color:#e74c3c; }
+    input[type="password"]:focus,
+    input[type="text"]:focus,
+    input[type="email"]:focus,
+    select:focus{ border-color:#e74c3c; }
     .err{ color:#ff8a80; font-size:0.9rem; min-height:1.2em; margin-top:0.6rem; }
     .mini{
       font-size: 0.75rem;
       color: #999;
       letter-spacing: 0.12em;
       text-transform: uppercase;
+    }
+
+    .auth-tabs{
+      display:flex;
+      gap:0.55rem;
+      flex-wrap:wrap;
+      margin:0.75rem 0 1rem;
+    }
+    .auth-tab{
+      background:transparent;
+      border:1px solid rgba(255,255,255,0.16);
+      box-shadow:none;
+      color:#ddd;
+      padding:0.55rem 1rem;
+    }
+    .auth-tab.active{
+      background: linear-gradient(135deg, #b71c1c, #6d0000);
+      color:#fff;
+      box-shadow: 0 0 18px rgba(255,0,0,0.22);
+    }
+    .field-grid{
+      display:grid;
+      gap:0.75rem;
+    }
+    .stack{
+      display:grid;
+      gap:0.35rem;
+    }
+    .stack label{
+      font-size:0.72rem;
+      color:#bbb;
+      letter-spacing:0.14em;
+      text-transform:uppercase;
+    }
+    .field-note{
+      color:#9f9f9f;
+      font-size:0.8rem;
+      line-height:1.45;
+      margin-top:0.35rem;
+    }
+    .hidden{ display:none !important; }
+    .account-line{
+      margin:0.15rem 0 0.85rem;
+      color:#ddd;
+      font-size:0.9rem;
+      line-height:1.5;
+    }
+    .account-line strong{ color:#e74c3c; font-weight:500; }
+    .helper-box{
+      border:1px solid rgba(255,255,255,0.1);
+      border-radius:12px;
+      padding:0.8rem 0.9rem;
+      background:rgba(255,255,255,0.03);
+      margin:0.75rem 0 0.95rem;
+    }
+    .btn:disabled{
+      opacity:0.55;
+      cursor:default;
+      box-shadow:none;
+      transform:none;
+    }
+    .modal-footer-note{
+      margin-top:0.75rem;
+      display:flex;
+      justify-content:space-between;
+      gap:0.7rem;
+      flex-wrap:wrap;
+      align-items:center;
     }
 
     @media (max-width: 860px) {
@@ -411,7 +509,14 @@
       <h1>Warhammer 40,000 Team Pairing Engine</h1>
 
       <!-- NEW: team name from env -->
-      <div class="teamline">Bunker access: <strong>{{ team_name }}</strong></div>
+      <div class="teamline">
+        Bunker access: <strong>{{ team_name }}</strong>
+        {% if auth_context.ready %}
+          · {{ auth_context.role|title }}
+        {% elif authenticated %}
+          · Team selection required
+        {% endif %}
+      </div>
 
       <p class="flavour">
         Forge your <strong>competitive pairings</strong> with ruthless precision.
@@ -427,7 +532,7 @@
             <div class="action-grid" id="actions">
               <a href="{{ url_for('players_page') }}" class="action-card primary">
                 <div class="action-title">Manage Players</div>
-                <div class="action-desc">Curate rosters, lists, and active commanders.</div>
+                <div class="action-desc">Curate players, lists, and roster-ready commanders.</div>
                 <div class="action-meta">Roster Control</div>
               </a>
               <a href="{{ url_for('roster_page') }}" class="action-card">
@@ -460,6 +565,20 @@
                 <div class="action-desc">Performance summaries and trends.</div>
                 <div class="action-meta">Intel Brief</div>
               </a>
+              {% if auth_context.is_admin %}
+                <a href="{{ url_for('admin_page') }}" class="action-card">
+                  <div class="action-title">Admin Panel</div>
+                  <div class="action-desc">Rename or delete app users, teams, and memberships.</div>
+                  <div class="action-meta">Site Admin</div>
+                </a>
+              {% endif %}
+              {% if authenticated %}
+                <a href="{{ url_for('team_access_page') }}" class="action-card" style="background:rgba(16,16,20,0.9);">
+                  <div class="action-title">Join / Create Team</div>
+                  <div class="action-desc">Switch teams, join by password, or create a new team.</div>
+                  <div class="action-meta">Team Access</div>
+                </a>
+              {% endif %}
               {% if logged_in %}
                 <button class="action-card" id="logout-btn" style="cursor:pointer; background:rgba(20,20,25,0.9);">
                   <div class="action-title">Logout</div>
@@ -473,8 +592,18 @@
         <!-- NEW: overlay shown only when NOT logged in -->
         {% if not logged_in %}
         <div class="locked-overlay" id="locked-overlay">
-          <div class="msg">Bunker sealed — authentication required.</div>
-          <button class="btn" id="open-login-btn">Enter Bunker</button>
+          <div class="msg">
+            {% if authenticated %}
+              Account connected. Open team access to continue.
+            {% else %}
+              Sign in first, then open or join a team.
+            {% endif %}
+          </div>
+          {% if authenticated %}
+            <a class="btn" href="{{ url_for('team_access_page') }}">Team Access</a>
+          {% else %}
+            <button class="btn" id="open-login-btn">Sign In</button>
+          {% endif %}
         </div>
         {% endif %}
       </div>
@@ -491,6 +620,11 @@
             <div class="divider" style="margin:1rem 0;"></div>
             <div class="brief-list">
               <div class="brief-item"><strong>Status:</strong> {{ "Bunker open" if logged_in else "Bunker sealed" }}</div>
+              {% if auth_context.role == "player" %}
+                <div class="brief-item"><strong>Access:</strong> Players can use every team feature except deleting players.</div>
+              {% elif auth_context.role == "captain" %}
+                <div class="brief-item"><strong>Access:</strong> Captains share team tools and can delete players.</div>
+              {% endif %}
               <div class="brief-item"><strong>Protocol:</strong> Grim dark efficiency, zero mercy.</div>
             </div>
           </div>
@@ -504,98 +638,55 @@
     <div class="modal" role="dialog" aria-modal="true" aria-labelledby="login-title">
       <div class="modal-inner">
         <div class="row" style="justify-content:space-between;">
-          <h3 id="login-title">Access Protocol</h3>
+          <h3 id="login-title">Account Login</h3>
           <button class="btn btn-secondary" id="close-login-btn" style="padding:0.55rem 1.1rem;">Close</button>
         </div>
-        <p>
-          Identify yourself to <strong style="color:#e74c3c; font-weight:500;">{{ team_name }}</strong>.
-          Enter the bunker password.
+        <p id="modal-intro">
+          Sign in or create your personal account. Team access is handled on a separate page after login.
         </p>
 
-        <div class="row">
-          <input id="login-password" type="password" placeholder="Password" autocomplete="current-password" />
-          <button class="btn" id="login-btn">Authenticate</button>
+        <div id="auth-step">
+          <div class="section-heading"><span class="step-number">1</span> Account</div>
+          <div class="auth-tabs">
+            <button class="auth-tab active" id="tab-login" type="button">Sign In</button>
+            <button class="auth-tab" id="tab-signup" type="button">Create Account</button>
+          </div>
+          <div class="field-note" style="margin:-0.45rem 0 0.85rem;">
+            This popup is only for your personal login.
+          </div>
+
+          <div class="field-grid">
+            <div class="stack hidden" id="display-name-wrap">
+              <label for="auth-display-name">Display name</label>
+              <input id="auth-display-name" type="text" placeholder="Commander name" autocomplete="name" />
+            </div>
+            <div class="stack">
+              <label for="auth-email">Email</label>
+              <input id="auth-email" type="email" placeholder="you@team.com" autocomplete="email" />
+            </div>
+            <div class="stack">
+              <label for="auth-password">Password</label>
+              <input id="auth-password" type="password" placeholder="Password" autocomplete="current-password" />
+            </div>
+          </div>
+
+          <div class="row" style="margin-top:1rem;">
+            <button class="btn" id="auth-submit-btn" type="button">Sign In</button>
+          </div>
         </div>
 
         <div class="err" id="login-error"></div>
-        <div class="mini">Tip: press Enter to confirm · Esc to close</div>
+        <div class="modal-footer-note">
+          <div class="mini">Enter confirms the visible step</div>
+          <div class="mini">Esc closes this window</div>
+        </div>
       </div>
     </div>
   </div>
 
   <script>
-    const LOGGED_IN = {{ "true" if logged_in else "false" }};
-
-    const backdrop = document.getElementById("login-backdrop");
-    const overlay = document.getElementById("locked-overlay");
-    const openBtn = document.getElementById("open-login-btn");
-    const closeBtn = document.getElementById("close-login-btn");
-    const loginBtn = document.getElementById("login-btn");
-    const pwd = document.getElementById("login-password");
-    const err = document.getElementById("login-error");
-
-    function openModal() {
-      if (!backdrop) return;
-      backdrop.style.display = "flex";
-      backdrop.setAttribute("aria-hidden", "false");
-      if (err) err.textContent = "";
-      if (pwd) pwd.value = "";
-      setTimeout(() => pwd && pwd.focus(), 50);
-    }
-    function closeModal() {
-      if (!backdrop) return;
-      backdrop.style.display = "none";
-      backdrop.setAttribute("aria-hidden", "true");
-    }
-
-    async function doLogin() {
-      if (!err) return;
-      err.textContent = "";
-      const password = (pwd.value || "").trim();
-      if (!password) { err.textContent = "Password required."; return; }
-
-      const res = await fetch("/api/login", {
-        method: "POST",
-        headers: {"Content-Type":"application/json"},
-        body: JSON.stringify({ password })
-      });
-      const data = await res.json().catch(() => ({}));
-      if (!res.ok) {
-        err.textContent = data.error || "Login failed.";
-        return;
-      }
-      window.location.reload();
-    }
-
-    // show overlay if locked
-    if (!LOGGED_IN && overlay) {
-      overlay.style.display = "flex";
-      // prevent clicking links behind (overlay covers it anyway)
-    }
-
-    if (!LOGGED_IN && openBtn) {
-      openBtn.addEventListener("click", openModal);
-      document.addEventListener("keydown", (e) => { if (e.key === "Enter" && backdrop.style.display === "flex") doLogin(); });
-    }
-
-    if (closeBtn) closeBtn.addEventListener("click", closeModal);
-    if (backdrop) backdrop.addEventListener("click", (e) => { if (e.target === backdrop) closeModal(); });
-    document.addEventListener("keydown", (e) => { if (e.key === "Escape") closeModal(); });
-    if (pwd) pwd.addEventListener("keydown", (e) => { if (e.key === "Enter") doLogin(); });
-    if (loginBtn) loginBtn.addEventListener("click", doLogin);
-
-    const logoutBtn = document.getElementById("logout-btn");
-    if (logoutBtn) {
-      logoutBtn.addEventListener("click", async () => {
-        await fetch("/api/logout", { method: "POST" });
-        window.location.reload();
-      });
-    }
-
-    // Optional: open modal immediately when locked (comment out if you don't want that)
-    if (!LOGGED_IN) {
-      // openModal();
-    }
+    window.APP_SESSION = {{ auth_context | tojson }};
   </script>
+  <script src="{{ url_for('static', filename='js/index_auth.js') }}"></script>
 </body>
 </html>
