@@ -23,5 +23,5 @@ RUN mkdir -p /app/data
 
 EXPOSE 5000
 
-# Dev-friendly: flask run (reload) with env in compose
-CMD ["flask", "run", "--host=0.0.0.0", "--port=5000"]
+# Production WSGI server
+CMD ["gunicorn", "--bind", "0.0.0.0:5000", "--workers", "2", "--threads", "4", "--timeout", "120", "app:app"]

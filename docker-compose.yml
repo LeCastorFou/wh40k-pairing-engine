@@ -10,11 +10,10 @@ services:
       FLASK_ENV: production
       FLASK_DEBUG: "0"
       TEAM_NAME: ${TEAM_NAME:-Pairing Engine}
-      FLASK_SECRET_KEY: ${FLASK_SECRET_KEY:-embukey}
-      SUPABASE_URL: ${SUPABASE_URL}
-      SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY}
-      SUPABASE_DB_URL: ${SUPABASE_DB_URL}
+      ADMIN_EMAIL: ${ADMIN_EMAIL:-valent1lefranc@gmail.com}
+      FLASK_SECRET_KEY: ${FLASK_SECRET_KEY:?Set FLASK_SECRET_KEY}
+      SUPABASE_URL: ${SUPABASE_URL:?Set SUPABASE_URL}
+      SUPABASE_ANON_KEY: ${SUPABASE_ANON_KEY:?Set SUPABASE_ANON_KEY}
+      SUPABASE_DB_URL: ${SUPABASE_DB_URL:?Set SUPABASE_DB_URL}
       DATA_DIR: /app/data
-    volumes:
-      - /srv/test/${TEAM_SLUG:-embuscade}:/app/data
     restart: unless-stopped
