@@ -48,6 +48,20 @@ def get_engine():
 
 
 @lru_cache(maxsize=1)
+def ensure_player_match_history_column() -> None:
+    engine = get_engine()
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                """
+                ALTER TABLE public.players
+                ADD COLUMN IF NOT EXISTS match_history jsonb NOT NULL DEFAULT '[]'::jsonb
+                """
+            )
+        )
+
+
+@lru_cache(maxsize=1)
 def get_supabase_client():
     url = os.getenv("SUPABASE_URL")
     anon_key = os.getenv("SUPABASE_ANON_KEY")
@@ -783,6 +797,8 @@ def load_players(team_id: int | None) -> list[dict[str, Any]]:
     if not team_id:
         return []
 
+    ensure_player_match_history_column()
+
     engine = get_engine()
     with engine.connect() as conn:
         players = [
@@ -793,11 +809,12 @@ def load_players(team_id: int | None) -> list[dict[str, Any]]:
                 "list_names": [],
                 "default_index": row["default_index"],
                 "archetypes": [],
+                "match_history": _as_json(row["match_history"], []),
             }
             for row in conn.execute(
                 text(
                     """
-                    SELECT id, name, default_index
+                    SELECT id, name, default_index, match_history
                     FROM players
                     WHERE team_id = :team_id
                     ORDER BY id
@@ -892,6 +909,8 @@ def save_players(team_id: int | None, players: list[dict[str, Any]]) -> None:
     if not team_id:
         raise RuntimeError("Active team is required.")
 
+    ensure_player_match_history_column()
+
     engine = get_engine()
     with engine.begin() as conn:
         existing_ids = {
@@ -918,6 +937,7 @@ def save_players(team_id: int | None, players: list[dict[str, Any]]) -> None:
                 "team_id": team_id,
                 "name": (player.get("name") or "").strip(),
                 "default_index": player.get("default_index"),
+                "match_history": json.dumps(player.get("match_history") or []),
             }
 
             if player_id in existing_ids:
@@ -926,7 +946,8 @@ def save_players(team_id: int | None, players: list[dict[str, Any]]) -> None:
                         """
                         UPDATE players
                         SET name = :name,
-                            default_index = :default_index
+                            default_index = :default_index,
+                            match_history = CAST(:match_history AS jsonb)
                         WHERE team_id = :team_id AND id = :id
                         """
                     ),
@@ -936,8 +957,8 @@ def save_players(team_id: int | None, players: list[dict[str, Any]]) -> None:
                 conn.execute(
                     text(
                         """
-                        INSERT INTO players (id, team_id, name, default_index)
-                        VALUES (:id, :team_id, :name, :default_index)
+                        INSERT INTO players (id, team_id, name, default_index, match_history)
+                        VALUES (:id, :team_id, :name, :default_index, CAST(:match_history AS jsonb))
                         """
                     ),
                     payload,

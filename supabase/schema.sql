@@ -18,8 +18,12 @@ create table if not exists public.players (
     team_id bigint not null references public.teams(id) on delete cascade,
     name text not null,
     active boolean not null default false,
-    default_index integer
+    default_index integer,
+    match_history jsonb not null default '[]'::jsonb
 );
+
+alter table public.players
+add column if not exists match_history jsonb not null default '[]'::jsonb;
 
 create index if not exists idx_players_team_id on public.players(team_id);
 

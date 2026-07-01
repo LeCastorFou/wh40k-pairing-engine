@@ -84,7 +84,7 @@
       return;
     }
 
-    window.location.href = "/teams/access";
+    window.location.href = data.session?.ready ? "/" : "/teams/access";
   }
 
   if (!isReady() && overlay) {

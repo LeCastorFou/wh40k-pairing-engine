@@ -905,6 +905,8 @@ def normalize_players(players):
         p["list_names"] = normalized_names
         if "default_index" not in p:
             p["default_index"] = None
+        if "match_history" not in p or not isinstance(p.get("match_history"), list):
+            p["match_history"] = []
     return players
 
 def save_players(players):
