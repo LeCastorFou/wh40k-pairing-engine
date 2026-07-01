@@ -29,12 +29,6 @@ let gDirty = false;
 let gRosterLocked = false;
 let gAllPlayers = [];
 let gComment = "";
-let gScenario = null;
-let gLayouts = {};
-let gPairings = [];
-let gScenarioDirty = false;
-let gMission = "";
-let gMissionDirty = false;
 let gAutoTemplate = false;
 
 
@@ -88,6 +82,27 @@ function getPlayerDefaultListLabel(player) {
   return defaultLabel || "No default list";
 }
 
+function getPlayerDefaultForceDisposition(player) {
+  if (typeof player?.list_force_disposition === "string" && player.list_force_disposition.trim()) {
+    return player.list_force_disposition.trim();
+  }
+
+  if (Array.isArray(player?.list_force_dispositions) && typeof player?.default_index === "number") {
+    const idx = player.default_index;
+    if (idx >= 0 && idx < player.list_force_dispositions.length) {
+      return (player.list_force_dispositions[idx] || "").trim();
+    }
+  }
+
+  return "";
+}
+
+function formatListWithForceDisposition(player) {
+  const listLabel = getPlayerDefaultListLabel(player);
+  const forceDisposition = getPlayerDefaultForceDisposition(player);
+  return forceDisposition ? `${listLabel} · ${forceDisposition}` : listLabel;
+}
+
 function getOpponentPlayerName(army, idx) {
   const trimmed = (army?.player_name || "").trim();
   return trimmed || `Opponent #${idx + 1}`;
@@ -96,6 +111,10 @@ function getOpponentPlayerName(army, idx) {
 function getOpponentFactionLabel(army, idx) {
   const trimmed = (army?.faction || "").trim();
   return trimmed || `Army #${idx + 1}`;
+}
+
+function getOpponentForceDisposition(army) {
+  return (army?.force_disposition || "").trim();
 }
 
 
@@ -118,29 +137,11 @@ function markDirty() {
   setStatus("Changes not saved.", "unsaved");
 }
 
-function markScenarioDirty() {
-  gScenarioDirty = true;
-  document.getElementById("save-matrix-btn").disabled = false;
-  setStatus("Changes not saved.", "unsaved");
-}
-
-function markMissionDirty() {
-  gMissionDirty = true;
-  document.getElementById("save-matrix-btn").disabled = false;
-  setStatus("Changes not saved.", "unsaved");
-}
-
 function setCommentUI(comment) {
   gComment = comment || "";
   const input = document.getElementById("matrix-comment-input");
   if (input) input.value = gComment;
   gAutoTemplate = false;
-}
-
-function setMissionUI(mission) {
-  gMission = mission || "";
-  const select = document.getElementById("matrix-mission-select");
-  if (select) select.value = gMission || "";
 }
 
 function applyStateToButton(btn, stateKey) {
@@ -158,90 +159,11 @@ function nextState(current) {
   return STATE_ORDER[nextIdx];
 }
 
-function ensure8Slots(pairingsFromServer) {
-  const byGameNo = {};
-  (pairingsFromServer || []).forEach(p => {
-    if (p && typeof p.game_no === "number") byGameNo[p.game_no] = p;
-  });
-
-  const slots = [];
-  for (let i = 1; i <= 8; i++) {
-    const existing = byGameNo[i];
-    if (existing) {
-      slots.push({
-        game_no: i,
-        player_id: (typeof existing.player_id === "number") ? existing.player_id : null,
-        army_index: (typeof existing.army_index === "number") ? existing.army_index : null,
-        layout_n: (typeof existing.layout_n === "number") ? existing.layout_n : null,
-        real_score: (typeof existing.real_score === "number") ? existing.real_score : null
-      });
-    } else {
-      slots.push({
-        game_no: i,
-        player_id: null,
-        army_index: null,
-        layout_n: null,
-        real_score: null
-      });
-    }
-  }
-  return slots;
-}
-
-function renderLayoutsStrip() {
-  const container = document.getElementById("matrix-layouts-strip");
-  const hint = document.getElementById("matrix-layout-hint");
-  if (!container) return;
-  container.innerHTML = "";
-
-  const layouts = gScenario ? (gLayouts[gScenario] || []) : [];
-  if (hint) {
-    if (!gScenario) hint.textContent = "Choose a scenario to display available layout images.";
-    else if (!layouts.length) hint.textContent = "No layouts found for this scenario.";
-    else hint.textContent = "Layouts available for this scenario.";
-  }
-
-  if (!gScenario || !layouts.length) return;
-
-  layouts.forEach(({ n, file }) => {
-    const card = document.createElement("div");
-    card.className = "layout-thumb";
-
-    const img = document.createElement("img");
-    img.src = `/layouts/${file}`;
-    img.alt = `Layout #${n}`;
-    card.appendChild(img);
-
-    const label = document.createElement("span");
-    label.textContent = `#${n}`;
-    card.appendChild(label);
-
-    container.appendChild(card);
-  });
-}
-
-function renderLayoutsPanel() {
-  const scenarioSelect = document.getElementById("matrix-scenario-select");
-  if (scenarioSelect) scenarioSelect.value = gScenario || "";
-  renderLayoutsStrip();
-}
-
-function scenarioLabel(key) {
-  if (!key) return "—";
-  return key.replaceAll("_", " ").toLowerCase();
-}
-
-function missionLabel(key) {
-  if (!key) return "—";
-  return key.replaceAll("_", " ").toLowerCase();
-}
-
 function buildCommentTemplate() {
-  const missionLine = `Mission : ${missionLabel(gMission)}`;
-  const layoutLine = `Layout : ${scenarioLabel(gScenario)}`;
+  const layoutLine = "Terrain : selected by force disposition matchup on the Fight page";
   const names = (gPlayers || []).map(p => getPlayerName(p)).filter(Boolean);
   const lines = names.map(name => `${name} : `);
-  return [missionLine, layoutLine, "", ...lines].join("\n");
+  return [layoutLine, "", ...lines].join("\n");
 }
 
 function applyAutoTemplateIfEmpty() {
@@ -297,8 +219,18 @@ function buildMatrixTable() {
     factionSpan.textContent = getOpponentFactionLabel(army, idx);
     headerDiv.appendChild(factionSpan);
 
+    const forceSpan = document.createElement("div");
+    forceSpan.className = "opponent-force-disposition";
+    forceSpan.textContent = getOpponentForceDisposition(army) || "No force disposition";
+    headerDiv.appendChild(forceSpan);
+
     const tooltip = document.createElement("div");
     tooltip.className = "faction-tooltip";
+
+    const forceMeta = document.createElement("div");
+    forceMeta.className = "tooltip-meta";
+    forceMeta.textContent = `Force disposition: ${getOpponentForceDisposition(army) || "—"}`;
+    tooltip.appendChild(forceMeta);
 
     const pre = document.createElement("pre");
     pre.textContent = army.list || "No list text.";
@@ -332,7 +264,7 @@ function buildMatrixTable() {
     const subSpan = document.createElement("div");
     subSpan.style.fontSize = "0.7rem";
     subSpan.style.color = "#aaa";
-    subSpan.textContent = getPlayerDefaultListLabel(player);
+    subSpan.textContent = formatListWithForceDisposition(player);
 
     wrapper.appendChild(nameSpan);
     wrapper.appendChild(subSpan);
@@ -392,14 +324,14 @@ function renderRosterPicker() {
   title.style.textTransform = "uppercase";
   title.style.marginBottom = "0.6rem";
   title.style.color = "#ddd";
-  title.textContent = "Select 8 players for this game (roster will be locked)";
+  title.textContent = "Select players for this game (roster will be locked)";
   panel.appendChild(title);
 
   const hint = document.createElement("div");
   hint.style.color = "#aaa";
   hint.style.fontSize = "0.85rem";
   hint.style.marginBottom = "0.8rem";
-  hint.textContent = "You can have more players saved globally. Only 8 are used for this specific game.";
+  hint.textContent = "Select 1 to 8 players. For testing, you can lock a smaller roster and build a smaller matrix.";
   panel.appendChild(hint);
 
   const list = document.createElement("div");
@@ -412,7 +344,7 @@ function renderRosterPicker() {
 
   function updateCountLabel() {
     count.textContent = `${selected.size} / 8 selected`;
-    lockBtn.disabled = selected.size !== 8;
+    lockBtn.disabled = selected.size < 1 || selected.size > 8;
   }
 
   gAllPlayers.forEach(p => {
@@ -433,7 +365,7 @@ function renderRosterPicker() {
       if (cb.checked) {
         if (selected.size >= 8) {
           cb.checked = false;
-          alert("You must select exactly 8 players.");
+          alert("You can select at most 8 players.");
           return;
         }
         selected.add(p.id);
@@ -450,7 +382,7 @@ function renderRosterPicker() {
     name.style.fontWeight = "500";
 
     const sub = document.createElement("div");
-    sub.textContent = getPlayerDefaultListLabel(p);
+    sub.textContent = formatListWithForceDisposition(p);
     sub.style.fontSize = "0.75rem";
     sub.style.color = "#aaa";
 
@@ -514,11 +446,7 @@ async function loadMatrixData() {
   setStatus("Loading matrix...");
   document.getElementById("save-matrix-btn").disabled = true;
 
-  const [res, resLayouts, resPairings] = await Promise.all([
-    fetch(`/api/games/${window.GAME_ID}/matrix`),
-    fetch("/api/layouts"),
-    fetch(`/api/games/${window.GAME_ID}/pairings`)
-  ]);
+  const res = await fetch(`/api/games/${window.GAME_ID}/matrix`);
 
   if (!res.ok) {
     setStatus("Error loading matrix.", "error");
@@ -528,14 +456,6 @@ async function loadMatrixData() {
   const data = await res.json();
   const game = data.game;
   setCommentUI(game?.comment || "");
-  setMissionUI(game?.mission || "");
-
-  gLayouts = resLayouts.ok ? await resLayouts.json() : {};
-  const pairingsData = resPairings.ok ? await resPairings.json() : { scenario: null, pairings: [] };
-  gScenario = pairingsData.scenario || null;
-  gPairings = ensure8Slots(pairingsData.pairings);
-  gScenarioDirty = false;
-  renderLayoutsPanel();
 
   gRosterLocked = !!data.roster_locked;
   gAllPlayers = data.all_players || [];
@@ -554,7 +474,7 @@ async function loadMatrixData() {
     const table = document.getElementById("matrix-table");
     if (table) table.innerHTML = "";
 
-    setStatus("Roster not locked for this game. Select 8 players first.", "unsaved");
+    setStatus("Roster not locked for this game. Select 1 to 8 players first.", "unsaved");
     renderRosterPicker();
     return;
   }
@@ -572,14 +492,12 @@ async function loadMatrixData() {
 
   buildMatrixTable();
   gDirty = false;
-  gScenarioDirty = false;
-  gMissionDirty = false;
   setStatus("Matrix loaded. Click cells to cycle through states.");
   applyAutoTemplateIfEmpty();
 }
 
 async function saveMatrix() {
-  if (!gDirty && !gScenarioDirty && !gMissionDirty) return;
+  if (!gDirty) return;
 
   const btn = document.getElementById("save-matrix-btn");
   btn.disabled = true;
@@ -598,14 +516,12 @@ async function saveMatrix() {
   });
 
   let matrixOk = true;
-  let scenarioOk = true;
-
-  if (gDirty || gMissionDirty) {
+  if (gDirty) {
     try {
       const res = await fetch(`/api/games/${window.GAME_ID}/matrix`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ entries, comment: gComment, mission: gMission })
+        body: JSON.stringify({ entries, comment: gComment })
       });
 
       const data = await res.json();
@@ -618,7 +534,6 @@ async function saveMatrix() {
       } else {
         gDirty = false;
         setCommentUI(gComment);
-        gMissionDirty = false;
       }
     } catch (err) {
       console.error(err);
@@ -628,31 +543,7 @@ async function saveMatrix() {
     }
   }
 
-  if (gScenarioDirty) {
-    try {
-      const res = await fetch(`/api/games/${window.GAME_ID}/pairings`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ scenario: gScenario, pairings: gPairings })
-      });
-      const data = await res.json();
-      if (!res.ok) {
-        console.error(data);
-        setStatus(data.error || "Error saving scenario.", "error");
-        btn.disabled = false;
-        scenarioOk = false;
-      } else {
-        gScenarioDirty = false;
-      }
-    } catch (err) {
-      console.error(err);
-      setStatus("Network or server error while saving scenario.", "error");
-      btn.disabled = false;
-      scenarioOk = false;
-    }
-  }
-
-  if (matrixOk && scenarioOk) {
+  if (matrixOk) {
     setStatus("Changes saved. The data-vault is pleased.", "saved");
   }
 }
@@ -740,43 +631,6 @@ document.addEventListener("DOMContentLoaded", async () => {
       gComment = commentInput.value || "";
       gAutoTemplate = false;
       markDirty();
-    });
-  }
-
-  const missionSelect = document.getElementById("matrix-mission-select");
-  if (missionSelect) {
-    missionSelect.addEventListener("change", () => {
-      gMission = missionSelect.value || "";
-      updateAutoTemplateIfActive();
-      markMissionDirty();
-    });
-  }
-
-  const scenarioSelect = document.getElementById("matrix-scenario-select");
-  if (scenarioSelect) {
-    scenarioSelect.addEventListener("change", () => {
-      const newScenario = scenarioSelect.value || null;
-
-      if (gScenario && newScenario && gScenario !== newScenario) {
-        const hasLayouts = gPairings.some(p => typeof p.layout_n === "number");
-        if (hasLayouts) {
-          const ok = confirm("Changing scenario will clear all selected layout numbers. Continue?");
-          if (!ok) {
-            scenarioSelect.value = gScenario;
-            return;
-          }
-        }
-        gPairings.forEach(p => { p.layout_n = null; });
-      }
-
-      if (!newScenario) {
-        gPairings.forEach(p => { p.layout_n = null; });
-      }
-
-      gScenario = newScenario;
-      renderLayoutsStrip();
-      updateAutoTemplateIfActive();
-      markScenarioDirty();
     });
   }
 

@@ -97,7 +97,8 @@
       color: #f5f5f5;
     }
 
-    input[type="text"] {
+    input[type="text"],
+    select {
       background: #111;
       border: 1px solid #444;
       border-radius: 999px;
@@ -108,7 +109,8 @@
       min-width: 200px;
     }
 
-    input[type="text"]:focus {
+    input[type="text"]:focus,
+    select:focus {
       border-color: #e74c3c;
     }
 
@@ -468,6 +470,10 @@
         <div>
           <label for="list-modal-name">List name</label>
           <input id="list-modal-name" type="text" placeholder="Ex: WTC Team List" />
+        </div>
+        <div>
+          <label for="list-modal-force-disposition">Force disposition</label>
+          <select id="list-modal-force-disposition"></select>
         </div>
         <div>
           <label for="list-modal-text">List text</label>

@@ -62,6 +62,34 @@ def ensure_player_match_history_column() -> None:
 
 
 @lru_cache(maxsize=1)
+def ensure_player_list_force_disposition_column() -> None:
+    engine = get_engine()
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                """
+                ALTER TABLE public.player_lists
+                ADD COLUMN IF NOT EXISTS force_disposition text NOT NULL DEFAULT ''
+                """
+            )
+        )
+
+
+@lru_cache(maxsize=1)
+def ensure_player_archetype_force_disposition_column() -> None:
+    engine = get_engine()
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                """
+                ALTER TABLE public.player_archetypes
+                ADD COLUMN IF NOT EXISTS force_disposition text NOT NULL DEFAULT ''
+                """
+            )
+        )
+
+
+@lru_cache(maxsize=1)
 def get_supabase_client():
     url = os.getenv("SUPABASE_URL")
     anon_key = os.getenv("SUPABASE_ANON_KEY")
@@ -798,6 +826,8 @@ def load_players(team_id: int | None) -> list[dict[str, Any]]:
         return []
 
     ensure_player_match_history_column()
+    ensure_player_list_force_disposition_column()
+    ensure_player_archetype_force_disposition_column()
 
     engine = get_engine()
     with engine.connect() as conn:
@@ -807,6 +837,7 @@ def load_players(team_id: int | None) -> list[dict[str, Any]]:
                 "name": row["name"],
                 "lists": [],
                 "list_names": [],
+                "list_force_dispositions": [],
                 "default_index": row["default_index"],
                 "archetypes": [],
                 "match_history": _as_json(row["match_history"], []),
@@ -829,7 +860,7 @@ def load_players(team_id: int | None) -> list[dict[str, Any]]:
         for row in conn.execute(
             text(
                 """
-                SELECT pl.player_id, pl.position, pl.name, pl.list_text
+                SELECT pl.player_id, pl.position, pl.name, pl.list_text, pl.force_disposition
                 FROM player_lists pl
                 JOIN players p ON p.id = pl.player_id
                 WHERE p.team_id = :team_id
@@ -843,11 +874,12 @@ def load_players(team_id: int | None) -> list[dict[str, Any]]:
                 continue
             player["list_names"].append(row["name"])
             player["lists"].append(row["list_text"])
+            player["list_force_dispositions"].append(row["force_disposition"] or "")
 
         for row in conn.execute(
             text(
                 """
-                SELECT pa.player_id, pa.position, pa.faction, pa.role, pa.comment
+                SELECT pa.player_id, pa.position, pa.faction, pa.role, pa.force_disposition, pa.comment
                 FROM player_archetypes pa
                 JOIN players p ON p.id = pa.player_id
                 WHERE p.team_id = :team_id
@@ -863,6 +895,7 @@ def load_players(team_id: int | None) -> list[dict[str, Any]]:
                 {
                     "faction": row["faction"],
                     "role": row["role"],
+                    "force_disposition": row["force_disposition"] or "",
                     "comment": row["comment"] or "",
                 }
             )
@@ -910,6 +943,8 @@ def save_players(team_id: int | None, players: list[dict[str, Any]]) -> None:
         raise RuntimeError("Active team is required.")
 
     ensure_player_match_history_column()
+    ensure_player_list_force_disposition_column()
+    ensure_player_archetype_force_disposition_column()
 
     engine = get_engine()
     with engine.begin() as conn:
@@ -975,13 +1010,14 @@ def save_players(team_id: int | None, players: list[dict[str, Any]]) -> None:
             )
 
             list_names = player.get("list_names") or []
+            force_dispositions = player.get("list_force_dispositions") or []
             lists = player.get("lists") or []
             for idx, text_value in enumerate(lists):
                 conn.execute(
                     text(
                         """
-                        INSERT INTO player_lists (player_id, position, name, list_text)
-                        VALUES (:player_id, :position, :name, :list_text)
+                        INSERT INTO player_lists (player_id, position, name, list_text, force_disposition)
+                        VALUES (:player_id, :position, :name, :list_text, :force_disposition)
                         """
                     ),
                     {
@@ -989,6 +1025,11 @@ def save_players(team_id: int | None, players: list[dict[str, Any]]) -> None:
                         "position": idx,
                         "name": (list_names[idx] if idx < len(list_names) else f"List #{idx + 1}").strip(),
                         "list_text": text_value,
+                        "force_disposition": (
+                            force_dispositions[idx]
+                            if idx < len(force_dispositions) and isinstance(force_dispositions[idx], str)
+                            else ""
+                        ).strip(),
                     },
                 )
 
@@ -997,8 +1038,8 @@ def save_players(team_id: int | None, players: list[dict[str, Any]]) -> None:
                 conn.execute(
                     text(
                         """
-                        INSERT INTO player_archetypes (player_id, position, faction, role, comment)
-                        VALUES (:player_id, :position, :faction, :role, :comment)
+                        INSERT INTO player_archetypes (player_id, position, faction, role, force_disposition, comment)
+                        VALUES (:player_id, :position, :faction, :role, :force_disposition, :comment)
                         """
                     ),
                     {
@@ -1006,6 +1047,7 @@ def save_players(team_id: int | None, players: list[dict[str, Any]]) -> None:
                         "position": idx,
                         "faction": (archetype.get("faction") or "").strip(),
                         "role": (archetype.get("role") or "").strip(),
+                        "force_disposition": (archetype.get("force_disposition") or "").strip(),
                         "comment": (archetype.get("comment") or "").strip(),
                     },
                 )

@@ -30,6 +30,14 @@ const FACTIONS = [
   "Ynnari"
 ];
 
+const FORCE_DISPOSITIONS = [
+  "Priority assets",
+  "Recon",
+  "Take and hold",
+  "Purge the foes",
+  "Disruption"
+];
+
 function createArmyCard(index) {
   const card = document.createElement("div");
   card.className = "army-card";
@@ -76,6 +84,30 @@ function createArmyCard(index) {
 
   card.appendChild(select);
 
+  const forceLabel = document.createElement("label");
+  forceLabel.textContent = "Force disposition";
+  forceLabel.style.marginTop = "0.5rem";
+  forceLabel.style.marginBottom = "0.2rem";
+  card.appendChild(forceLabel);
+
+  const forceSelect = document.createElement("select");
+  forceSelect.className = "force-disposition-select";
+  forceSelect.dataset.index = index;
+
+  const forceEmpty = document.createElement("option");
+  forceEmpty.value = "";
+  forceEmpty.textContent = "— Select force disposition —";
+  forceSelect.appendChild(forceEmpty);
+
+  FORCE_DISPOSITIONS.forEach(value => {
+    const opt = document.createElement("option");
+    opt.value = value;
+    opt.textContent = value;
+    forceSelect.appendChild(opt);
+  });
+
+  card.appendChild(forceSelect);
+
   // List textarea
   const listLabel = document.createElement("label");
   listLabel.textContent = "List Text";
@@ -104,6 +136,7 @@ async function saveGame() {
   }
 
   const selects = Array.from(document.querySelectorAll(".faction-select"));
+  const forceSelects = Array.from(document.querySelectorAll(".force-disposition-select"));
   const texts = Array.from(document.querySelectorAll(".list-text"));
   const playerNames = Array.from(document.querySelectorAll(".player-name-input"));
 
@@ -113,15 +146,16 @@ async function saveGame() {
   for (let i = 0; i < selects.length; i++) {
     const playerName = playerNames[i].value.trim();
     const faction = selects[i].value.trim();
+    const forceDisposition = forceSelects[i].value.trim();
     const listText = texts[i].value.trim();
 
-    if (!playerName && !faction && !listText) {
+    if (!playerName && !faction && !forceDisposition && !listText) {
       // Empty slot, ignore
       continue;
     }
 
-    if (!playerName || !faction || !listText) {
-      statusEl.textContent = `Slot #${i + 1}: you must enter an opponent player, choose a faction, and paste a list, or leave it fully empty.`;
+    if (!playerName || !faction || !forceDisposition || !listText) {
+      statusEl.textContent = `Slot #${i + 1}: you must enter an opponent player, choose a faction, choose a force disposition, and paste a list, or leave it fully empty.`;
       statusEl.classList.add("error");
       return;
     }
@@ -133,7 +167,7 @@ async function saveGame() {
     }
 
     usedFactions.add(faction);
-    armies.push({ player_name: playerName, faction, list: listText });
+    armies.push({ player_name: playerName, faction, force_disposition: forceDisposition, list: listText });
   }
 
   if (armies.length === 0) {

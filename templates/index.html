@@ -16,12 +16,13 @@
       color: #f5f5f5;
       display: flex;
       justify-content: center;
-      align-items: center;
+      align-items: flex-start;
+      padding: 2rem;
     }
 
     .frame {
-      max-width: 900px;
-      padding: 2.5rem 3rem;
+      width: min(1180px, 100%);
+      padding: 2rem 2.2rem;
       border-radius: 16px;
       background: linear-gradient(145deg, rgba(10,10,15,0.95), rgba(5,5,8,0.98));
       border: 1px solid rgba(255, 255, 255, 0.08);
@@ -54,14 +55,6 @@
       font-size: 1.9rem;
     }
 
-    .subtitle {
-      font-size: 0.9rem;
-      text-transform: uppercase;
-      letter-spacing: 0.25em;
-      color: #c0392b;
-      margin-bottom: 1.0rem;
-    }
-
     .teamline{
       margin: -0.25rem 0 1.25rem;
       font-size: 0.85rem;
@@ -70,6 +63,15 @@
       color: #bbb;
     }
     .teamline strong{ color:#e74c3c; font-weight:500; }
+
+    .page-head {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 1rem;
+      flex-wrap: wrap;
+      margin-bottom: 1.2rem;
+    }
 
     .hero-bar {
       display: flex;
@@ -112,15 +114,6 @@
       background: rgba(255,193,7,0.12);
     }
 
-    .flavour {
-      font-size: 0.98rem;
-      line-height: 1.65;
-      color: #dcdcdc;
-      margin-bottom: 1.5rem;
-    }
-
-    .flavour strong { color: #e74c3c; font-weight: 500; }
-
     .divider {
       margin: 1.5rem 0;
       height: 1px;
@@ -130,7 +123,7 @@
 
     .main-grid {
       display: grid;
-      grid-template-columns: minmax(0, 1.15fr) minmax(0, 0.85fr);
+      grid-template-columns: 1fr;
       gap: 1.2rem;
     }
 
@@ -235,20 +228,6 @@
       background: linear-gradient(135deg, rgba(183,28,28,0.85), rgba(109,0,0,0.9));
       border-color: rgba(255,255,255,0.18);
       box-shadow: 0 0 18px rgba(255,0,0,0.25);
-    }
-
-    .brief-list {
-      display: flex;
-      flex-direction: column;
-      gap: 0.65rem;
-      font-size: 0.86rem;
-      color: #d0d0d0;
-      line-height: 1.5;
-    }
-
-    .brief-item strong {
-      color: #e57373;
-      font-weight: 500;
     }
 
     .btn {
@@ -497,138 +476,116 @@
 <body>
   <div class="frame">
     <div class="frame-inner">
-      <div class="hero-bar">
-        <div class="kicker">Command Centre</div>
-        {% if logged_in %}
-          <div class="status-pill ok">Access Granted</div>
-        {% else %}
-          <div class="status-pill locked">Access Locked</div>
-        {% endif %}
+      <div class="page-head">
+        <div>
+          <div class="hero-bar">
+            <div class="kicker">Command Centre</div>
+            {% if logged_in %}
+              <div class="status-pill ok">Access Granted</div>
+            {% else %}
+              <div class="status-pill locked">Access Locked</div>
+            {% endif %}
+          </div>
+          <h1>Warhammer 40,000 Team Pairing Engine</h1>
+          <div class="teamline">
+            Team: <strong>{{ team_name }}</strong>
+            {% if auth_context.ready %}
+              · {{ auth_context.role|title }}
+            {% elif authenticated %}
+              · Team selection required
+            {% endif %}
+          </div>
+        </div>
+        <a class="btn btn-secondary" href="{{ url_for('how_to_use_page') }}">How To Use</a>
       </div>
-      <div class="subtitle">In the grim darkness of the far future...</div>
-      <h1>Warhammer 40,000 Team Pairing Engine</h1>
-
-      <!-- NEW: team name from env -->
-      <div class="teamline">
-        Bunker access: <strong>{{ team_name }}</strong>
-        {% if auth_context.ready %}
-          · {{ auth_context.role|title }}
-        {% elif authenticated %}
-          · Team selection required
-        {% endif %}
-      </div>
-
-      <p class="flavour">
-        Forge your <strong>competitive pairings</strong> with ruthless precision.
-        Track your players, their lists, and prepare for the pairing war before the first die is rolled.
-      </p>
-
-      <hr class="divider" />
 
       <div class="main-grid">
         <div class="locked-wrap panel-lite">
           <div class="panel-inner-lite">
-            <div class="panel-title">Operations</div>
+            <div class="panel-title">Functionalities</div>
             <div class="action-grid" id="actions">
               <a href="{{ url_for('players_page') }}" class="action-card primary">
-                <div class="action-title">Manage Players</div>
-                <div class="action-desc">Curate players, lists, and roster-ready commanders.</div>
-                <div class="action-meta">Roster Control</div>
+                <div class="action-title">Players & Lists</div>
+                <div class="action-desc">Players, army lists, force dispositions, match history.</div>
+                <div class="action-meta">Roster</div>
               </a>
               <a href="{{ url_for('roster_page') }}" class="action-card">
-                <div class="action-title">Roster Archetypes</div>
-                <div class="action-desc">Define player roles and propose lineups.</div>
-                <div class="action-meta">Role Deck</div>
+                <div class="action-title">Roles & Archetypes</div>
+                <div class="action-desc">Defense, attack, blunt profiles and roster proposals.</div>
+                <div class="action-meta">Lineup</div>
               </a>
               <a href="{{ url_for('new_game_page') }}" class="action-card">
-                <div class="action-title">Create New Game</div>
-                <div class="action-desc">Log an opponent and upload codex lists.</div>
-                <div class="action-meta">New Conflict</div>
+                <div class="action-title">Create Game</div>
+                <div class="action-desc">Opponent team, codex, lists, force dispositions.</div>
+                <div class="action-meta">Setup</div>
               </a>
               <a href="{{ url_for('games_list_page') }}" class="action-card">
-                <div class="action-title">Saved Games</div>
-                <div class="action-desc">Review past matchups and pairings.</div>
-                <div class="action-meta">Archive</div>
+                <div class="action-title">Games</div>
+                <div class="action-desc">Matrices, fight pairing, scores, saved matchups.</div>
+                <div class="action-meta">Pairing</div>
               </a>
               <a href="{{ url_for('calendar_page') }}" class="action-card">
-                <div class="action-title">Team Calendar</div>
-                <div class="action-desc">Track availability and schedule pairing sessions.</div>
-                <div class="action-meta">Two-Week Window</div>
+                <div class="action-title">Calendar</div>
+                <div class="action-desc">Availability and preparation windows.</div>
+                <div class="action-meta">Planning</div>
               </a>
               <a href="{{ url_for('team_management_page') }}" class="action-card">
-                <div class="action-title">Team Management</div>
-                <div class="action-desc">Webhook config and team-level tools.</div>
-                <div class="action-meta">Command Tools</div>
+                <div class="action-title">Team</div>
+                <div class="action-desc">Team settings and Discord webhook.</div>
+                <div class="action-meta">Settings</div>
               </a>
               <a href="{{ url_for('report_page') }}" class="action-card">
-                <div class="action-title">Action Report</div>
-                <div class="action-desc">Performance summaries and trends.</div>
-                <div class="action-meta">Intel Brief</div>
+                <div class="action-title">Reports</div>
+                <div class="action-desc">Results, deltas, performance summaries.</div>
+                <div class="action-meta">Analysis</div>
+              </a>
+              <a href="{{ url_for('how_to_use_page') }}" class="action-card">
+                <div class="action-title">How To Use</div>
+                <div class="action-desc">Full documentation of the workflow and every tool area.</div>
+                <div class="action-meta">Guide</div>
               </a>
               {% if auth_context.is_admin %}
                 <a href="{{ url_for('admin_page') }}" class="action-card">
-                  <div class="action-title">Admin Panel</div>
-                  <div class="action-desc">Rename or delete app users, teams, and memberships.</div>
+                  <div class="action-title">Admin</div>
+                  <div class="action-desc">Users, teams, memberships.</div>
                   <div class="action-meta">Site Admin</div>
                 </a>
               {% endif %}
               {% if authenticated %}
                 <a href="{{ url_for('team_access_page') }}" class="action-card" style="background:rgba(16,16,20,0.9);">
-                  <div class="action-title">Join / Create Team</div>
-                  <div class="action-desc">Switch teams, join by password, or create a new team.</div>
+                  <div class="action-title">Team Access</div>
+                  <div class="action-desc">Join, create, or switch team.</div>
                   <div class="action-meta">Team Access</div>
                 </a>
               {% endif %}
               {% if logged_in %}
                 <button class="action-card" id="logout-btn" style="cursor:pointer; background:rgba(20,20,25,0.9);">
                   <div class="action-title">Logout</div>
-                  <div class="action-desc">Secure the bunker and end session.</div>
-                  <div class="action-meta">Seal Access</div>
+                  <div class="action-desc">End current session.</div>
+                  <div class="action-meta">Account</div>
                 </button>
               {% endif %}
             </div>
           </div>
 
-        <!-- NEW: overlay shown only when NOT logged in -->
         {% if not logged_in %}
-        <div class="locked-overlay" id="locked-overlay">
-          <div class="msg">
+          <div class="locked-overlay" id="locked-overlay">
+            <div class="msg">
+              {% if authenticated %}
+                Account connected. Open team access to continue.
+              {% else %}
+                Sign in first, then open or join a team.
+              {% endif %}
+            </div>
             {% if authenticated %}
-              Account connected. Open team access to continue.
+              <a class="btn" href="{{ url_for('team_access_page') }}">Team Access</a>
             {% else %}
-              Sign in first, then open or join a team.
+              <button class="btn" id="open-login-btn">Sign In</button>
             {% endif %}
           </div>
-          {% if authenticated %}
-            <a class="btn" href="{{ url_for('team_access_page') }}">Team Access</a>
-          {% else %}
-            <button class="btn" id="open-login-btn">Sign In</button>
-          {% endif %}
-        </div>
         {% endif %}
-      </div>
-
-        <div class="panel-lite">
-          <div class="panel-inner-lite">
-            <div class="panel-title">Briefing</div>
-            <div class="brief-list">
-              <div class="brief-item"><strong>1.</strong> Lock your 8-player roster before matrix work.</div>
-              <div class="brief-item"><strong>2.</strong> Fill matchup states, then optimize pairings.</div>
-              <div class="brief-item"><strong>3.</strong> Save fight results to unlock reports.</div>
-              <div class="brief-item"><strong>Tip:</strong> Keep your webhook online for live team pings.</div>
-            </div>
-            <div class="divider" style="margin:1rem 0;"></div>
-            <div class="brief-list">
-              <div class="brief-item"><strong>Status:</strong> {{ "Bunker open" if logged_in else "Bunker sealed" }}</div>
-              {% if auth_context.role == "player" %}
-                <div class="brief-item"><strong>Access:</strong> Players can use every team feature except deleting players.</div>
-              {% elif auth_context.role == "captain" %}
-                <div class="brief-item"><strong>Access:</strong> Captains share team tools and can delete players.</div>
-              {% endif %}
-              <div class="brief-item"><strong>Protocol:</strong> Grim dark efficiency, zero mercy.</div>
-            </div>
-          </div>
         </div>
+
       </div>
     </div>
   </div>

@@ -1,5 +1,12 @@
 const ACCESS = window.APP_ACCESS || {};
 const IS_CAPTAIN = ACCESS.role === "captain";
+const FORCE_DISPOSITIONS = [
+  "Priority assets",
+  "Recon",
+  "Take and hold",
+  "Purge the foes",
+  "Disruption"
+];
 
 function canManagePlayer(playerId) {
   return true;
@@ -35,20 +42,20 @@ async function deletePlayer(id) {
   return data;
 }
 
-async function addList(playerId, name, text) {
+async function addList(playerId, name, text, forceDisposition) {
   const res = await fetch(`/api/players/${playerId}/lists`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name, text })
+    body: JSON.stringify({ name, text, force_disposition: forceDisposition })
   });
   return await res.json();
 }
 
-async function updateList(playerId, index, name, text) {
+async function updateList(playerId, index, name, text, forceDisposition) {
   const res = await fetch(`/api/players/${playerId}/lists/${index}`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ name, text })
+    body: JSON.stringify({ name, text, force_disposition: forceDisposition })
   });
   return await res.json();
 }
@@ -80,6 +87,29 @@ function getModalEl(id) {
   return document.getElementById(id);
 }
 
+function forceDispositionLabel(value) {
+  return FORCE_DISPOSITIONS.find(item => item.toLowerCase() === String(value || "").trim().toLowerCase()) || "";
+}
+
+function populateForceDispositionSelect(selectEl, selectedValue = "") {
+  if (!selectEl) return;
+  const selected = forceDispositionLabel(selectedValue);
+  selectEl.innerHTML = "";
+
+  const empty = document.createElement("option");
+  empty.value = "";
+  empty.textContent = "Select force disposition";
+  selectEl.appendChild(empty);
+
+  FORCE_DISPOSITIONS.forEach(value => {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = value;
+    option.selected = value === selected;
+    selectEl.appendChild(option);
+  });
+}
+
 function setManagedPlayerStatus(message, tone = "") {
   const statusEl = getModalEl("managed-player-status");
   if (!statusEl) return;
@@ -102,24 +132,27 @@ function closeListModal() {
   overlay.classList.remove("visible");
 }
 
-function openListModal({ mode, playerId, listIndex = null, listName = "", listText = "", playerName = "" }) {
+function openListModal({ mode, playerId, listIndex = null, listName = "", listText = "", forceDisposition = "", playerName = "" }) {
   gModalState = { mode, playerId, listIndex };
 
   const overlay = getModalEl("list-modal");
   const title = getModalEl("list-modal-title");
   const subtitle = getModalEl("list-modal-subtitle");
   const nameInput = getModalEl("list-modal-name");
+  const forceSelect = getModalEl("list-modal-force-disposition");
   const textInput = getModalEl("list-modal-text");
   const saveBtn = getModalEl("list-modal-save");
 
-  if (!overlay || !title || !subtitle || !nameInput || !textInput || !saveBtn) return;
+  if (!overlay || !title || !subtitle || !nameInput || !forceSelect || !textInput || !saveBtn) return;
 
   const isReadOnly = mode === "view";
   title.textContent = mode === "add" ? "Add List" : mode === "edit" ? "Edit List" : "View List";
   subtitle.textContent = playerName ? `Player: ${playerName}` : "";
   nameInput.value = listName;
+  populateForceDispositionSelect(forceSelect, forceDisposition);
   textInput.value = listText;
   nameInput.readOnly = isReadOnly;
+  forceSelect.disabled = isReadOnly;
   textInput.readOnly = isReadOnly;
   saveBtn.style.display = isReadOnly ? "none" : "inline-flex";
 
@@ -130,22 +163,28 @@ function openListModal({ mode, playerId, listIndex = null, listName = "", listTe
 async function saveListModal() {
   const { mode, playerId, listIndex } = gModalState;
   const nameInput = getModalEl("list-modal-name");
+  const forceSelect = getModalEl("list-modal-force-disposition");
   const textInput = getModalEl("list-modal-text");
   const saveBtn = getModalEl("list-modal-save");
-  if (!nameInput || !textInput || !saveBtn) return;
+  if (!nameInput || !forceSelect || !textInput || !saveBtn) return;
 
   const name = nameInput.value.trim();
+  const forceDisposition = forceSelect.value.trim();
   const text = textInput.value.trim();
   if (!name || !text) {
     alert("List name and list text are required.");
+    return;
+  }
+  if (!forceDisposition) {
+    alert("Force disposition is required.");
     return;
   }
 
   saveBtn.disabled = true;
   try {
     const data = mode === "add"
-      ? await addList(playerId, name, text)
-      : await updateList(playerId, listIndex, name, text);
+      ? await addList(playerId, name, text, forceDisposition)
+      : await updateList(playerId, listIndex, name, text, forceDisposition);
 
     if (data?.error) {
       alert(data.error);
@@ -249,6 +288,7 @@ function renderPlayers(players) {
         if (player.default_index === idx) listDiv.classList.add("is-default");
 
         const currentName = (player.list_names?.[idx] || `List #${idx + 1}`).trim();
+        const currentForceDisposition = forceDispositionLabel(player.list_force_dispositions?.[idx] || "");
 
         const headerRow = document.createElement("div");
         headerRow.className = "list-meta";
@@ -258,6 +298,13 @@ function renderPlayers(players) {
         nameTag.style.letterSpacing = "0.04em";
         nameTag.textContent = currentName;
         headerRow.appendChild(nameTag);
+
+        if (currentForceDisposition) {
+          const forceBadge = document.createElement("span");
+          forceBadge.className = "badge";
+          forceBadge.textContent = currentForceDisposition;
+          headerRow.appendChild(forceBadge);
+        }
 
         if (player.default_index === idx) {
           const badge = document.createElement("span");
@@ -280,6 +327,7 @@ function renderPlayers(players) {
             listIndex: idx,
             listName: currentName,
             listText: text,
+            forceDisposition: currentForceDisposition,
             playerName: player.name
           });
         });
@@ -295,6 +343,7 @@ function renderPlayers(players) {
               listIndex: idx,
               listName: currentName,
               listText: text,
+              forceDisposition: currentForceDisposition,
               playerName: player.name
             });
           });

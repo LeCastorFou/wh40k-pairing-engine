@@ -74,6 +74,31 @@ ALLOWED_MATRIX_STATES = {
 
 ALLOWED_ARCHETYPE_ROLES = {"defense", "attack", "blunt"}
 
+FORCE_DISPOSITIONS = [
+    "Priority assets",
+    "Recon",
+    "Take and hold",
+    "Purge the foes",
+    "Disruption",
+]
+
+TERRAIN_MAPS_PER_COMBINATION = 3
+TERRAIN_LAYOUT_DIR = DATA_DIR / "terrain"
+TERRAIN_LAYOUT_DIR.mkdir(parents=True, exist_ok=True)
+TERRAIN_IMAGE_EXTENSIONS = (".png", ".jpg", ".jpeg", ".webp")
+TERRAIN_FILE_LABELS = {
+    "Priority assets": "Priority-Assets",
+    "Recon": "Reconnaissance",
+    "Take and hold": "Take-and-Hold",
+    "Purge the foes": "Purge-the-Foe",
+    "Disruption": "Disruption",
+}
+TERRAIN_LAYOUT_LETTERS = {
+    1: "A",
+    2: "B",
+    3: "C",
+}
+
 
 PAIRING_SCORE_MAP = {
     "grosse_defaite": 0.0,
@@ -102,21 +127,110 @@ FIGHT_PHASE_BY_REMAINING = {
     0: {"kind": "complete", "label": "Round complete", "slot_numbers": []},
 }
 
-SCENARIO_LABELS = {
-    "HAMMER_ANVIL": "Hammer and Anvil",
-    "SEEK_DESTROY": "Seek and Destroy",
-    "CRUCIBLE_BATTLE": "Crucible Battle",
-    "TIPPING_POINTS": "Tipping Points",
-    "DAWN_OF_WAR": "Dawn of War",
-    "SWEEPING_ENGAGEMENT": "Sweeping Engagement"
-}
-
 def default_list_text(player: dict):
     lists = player.get("lists") or []
     idx = player.get("default_index")
     if isinstance(idx, int) and 0 <= idx < len(lists):
         return lists[idx]
     return None
+
+def normalize_force_disposition(value):
+    if not isinstance(value, str):
+        return ""
+    raw = value.strip()
+    for item in FORCE_DISPOSITIONS:
+        if raw.lower() == item.lower():
+            return item
+    return ""
+
+
+def force_disposition_slug(value):
+    normalized = normalize_force_disposition(value)
+    return slugify(normalized) if normalized else ""
+
+
+def terrain_pair_key(our_force_disposition, opponent_force_disposition):
+    our_slug = force_disposition_slug(our_force_disposition)
+    opponent_slug = force_disposition_slug(opponent_force_disposition)
+    if not our_slug or not opponent_slug:
+        return ""
+    return f"{our_slug}_vs_{opponent_slug}"
+
+
+def terrain_map_id(our_force_disposition, opponent_force_disposition, index):
+    key = terrain_pair_key(our_force_disposition, opponent_force_disposition)
+    if not key:
+        return ""
+    return f"{key}_{index}"
+
+
+def terrain_file_label(value):
+    normalized = normalize_force_disposition(value)
+    return TERRAIN_FILE_LABELS.get(normalized, "")
+
+
+def terrain_image_file_for(our_force_disposition, opponent_force_disposition, index):
+    our_slug = force_disposition_slug(our_force_disposition)
+    opponent_slug = force_disposition_slug(opponent_force_disposition)
+    our_file_label = terrain_file_label(our_force_disposition)
+    opponent_file_label = terrain_file_label(opponent_force_disposition)
+    layout_letter = TERRAIN_LAYOUT_LETTERS.get(index)
+    if not our_slug or not opponent_slug or not our_file_label or not opponent_file_label or not layout_letter:
+        return None
+
+    ordered_stems = [
+        f"{our_file_label}_vs_{opponent_file_label}_Layout-{layout_letter}",
+        f"{opponent_file_label}_vs_{our_file_label}_Layout-{layout_letter}",
+        f"{our_slug}_vs_{opponent_slug}_{index}",
+        f"{opponent_slug}_vs_{our_slug}_{index}",
+    ]
+    for stem in ordered_stems:
+        for ext in TERRAIN_IMAGE_EXTENSIONS:
+            rel_path = Path("terrain") / f"{stem}{ext}"
+            if (DATA_DIR / rel_path).exists():
+                return rel_path.as_posix()
+    return None
+
+
+def terrain_options_for(our_force_disposition, opponent_force_disposition):
+    our_force = normalize_force_disposition(our_force_disposition)
+    opponent_force = normalize_force_disposition(opponent_force_disposition)
+    if not our_force or not opponent_force:
+        return []
+
+    combination = f"{our_force} vs {opponent_force}"
+    options = []
+    for index in range(1, TERRAIN_MAPS_PER_COMBINATION + 1):
+        file_path = terrain_image_file_for(our_force, opponent_force, index)
+        options.append({
+            "id": terrain_map_id(our_force, opponent_force, index),
+            "n": index,
+            "label": f"Layout {TERRAIN_LAYOUT_LETTERS[index]}",
+            "combination": combination,
+            "our_force_disposition": our_force,
+            "opponent_force_disposition": opponent_force,
+            "file": file_path,
+            "placeholder": file_path is None,
+        })
+    return options
+
+
+def all_terrain_layouts():
+    combinations = {}
+    for our_force in FORCE_DISPOSITIONS:
+        for opponent_force in FORCE_DISPOSITIONS:
+            combinations[terrain_pair_key(our_force, opponent_force)] = terrain_options_for(our_force, opponent_force)
+    return combinations
+
+
+def valid_terrain_map_id(value, our_force_disposition, opponent_force_disposition):
+    if not isinstance(value, str) or not value.strip():
+        return False
+    valid_ids = {
+        option["id"]
+        for option in terrain_options_for(our_force_disposition, opponent_force_disposition)
+    }
+    return value.strip() in valid_ids
 
 def list_name_at(player: dict, index: int):
     names = player.get("list_names") or []
@@ -125,6 +239,12 @@ def list_name_at(player: dict, index: int):
         if isinstance(name, str) and name.strip():
             return name.strip()
     return f"List #{index + 1}"
+
+def list_force_disposition_at(player: dict, index: int):
+    values = player.get("list_force_dispositions") or []
+    if isinstance(index, int) and 0 <= index < len(values):
+        return normalize_force_disposition(values[index])
+    return ""
 
 def default_list_name(player: dict):
     lists = player.get("lists") or []
@@ -135,6 +255,15 @@ def default_list_name(player: dict):
         return list_name_at(player, 0)
     return "No default list"
 
+def default_force_disposition(player: dict):
+    lists = player.get("lists") or []
+    idx = player.get("default_index")
+    if isinstance(idx, int) and 0 <= idx < len(lists):
+        return list_force_disposition_at(player, idx)
+    if lists:
+        return list_force_disposition_at(player, 0)
+    return ""
+
 
 def is_filled_pairing_slot(pairing):
     if not isinstance(pairing, dict):
@@ -144,11 +273,12 @@ def is_filled_pairing_slot(pairing):
 
 def player_brief(entry: dict):
     if not isinstance(entry, dict):
-        return {"player_id": None, "name": "Unknown player", "list_name": ""}
+        return {"player_id": None, "name": "Unknown player", "list_name": "", "force_disposition": ""}
     return {
         "player_id": entry.get("player_id"),
         "name": entry.get("player_name") or f"Player {entry.get('player_id')}",
         "list_name": entry.get("list_name") or "No default list",
+        "force_disposition": normalize_force_disposition(entry.get("list_force_disposition")),
     }
 
 
@@ -158,6 +288,7 @@ def army_brief(army: dict, army_index: int):
         "army_index": army_index,
         "player_name": (army.get("player_name") or "").strip() or f"Opponent #{army_index + 1}",
         "faction": (army.get("faction") or "").strip() or f"Army #{army_index + 1}",
+        "force_disposition": normalize_force_disposition(army.get("force_disposition")),
     }
 
 
@@ -609,11 +740,15 @@ def build_mirror_scenarios(ctx, solver, ours, theirs, forced_our_defs_by_remaini
 
 
 def format_report_player(player_info):
-    return player_info["name"]
+    force_disposition = player_info.get("force_disposition")
+    return f"{player_info['name']} [{force_disposition}]" if force_disposition else player_info["name"]
 
 
 def format_report_army(army_info):
-    return f"{army_info['player_name']} ({army_info['faction']})"
+    detail = army_info["faction"]
+    if army_info.get("force_disposition"):
+        detail = f"{detail} · {army_info['force_disposition']}"
+    return f"{army_info['player_name']} ({detail})"
 
 
 def scenario_band(score, baseline_score):
@@ -893,6 +1028,11 @@ def normalize_players(players):
             continue
         if "archetypes" not in p or not isinstance(p.get("archetypes"), list):
             p["archetypes"] = []
+        for archetype in p["archetypes"]:
+            if isinstance(archetype, dict):
+                archetype["force_disposition"] = normalize_force_disposition(
+                    archetype.get("force_disposition")
+                )
         if "lists" not in p or not isinstance(p.get("lists"), list):
             p["lists"] = []
         names = p.get("list_names")
@@ -903,6 +1043,14 @@ def normalize_players(players):
             raw = names[i] if i < len(names) else ""
             normalized_names.append(raw.strip() if isinstance(raw, str) and raw.strip() else f"List #{i + 1}")
         p["list_names"] = normalized_names
+        force_values = p.get("list_force_dispositions")
+        if not isinstance(force_values, list):
+            force_values = []
+        normalized_force_values = []
+        for i, _ in enumerate(p["lists"]):
+            raw = force_values[i] if i < len(force_values) else ""
+            normalized_force_values.append(normalize_force_disposition(raw))
+        p["list_force_dispositions"] = normalized_force_values
         if "default_index" not in p:
             p["default_index"] = None
         if "match_history" not in p or not isinstance(p.get("match_history"), list):
@@ -1044,6 +1192,7 @@ def clear_deleted_player_pairing_slot(pairing: dict, player_id: int):
     cleared["player_id"] = None
     cleared["army_index"] = None
     cleared["layout_n"] = None
+    cleared["terrain_map_id"] = None
     cleared.pop("real_score", None)
     return cleared, True
 
@@ -1387,6 +1536,17 @@ def index():
     )
 
 
+@app.route("/how-to-use")
+def how_to_use_page():
+    auth = current_auth()
+    return render_template(
+        "how_to_use.html",
+        team_name=auth.get("team_name") or TEAM_NAME,
+        logged_in=bool(auth.get("ready")),
+        authenticated=bool(auth.get("authenticated")),
+    )
+
+
 @app.route("/teams/access")
 @authenticated_required
 def team_access_page():
@@ -1589,6 +1749,7 @@ def api_add_player():
             "name": name,
             "lists": [],
             "list_names": [],
+            "list_force_dispositions": [],
             "default_index": None,
             "archetypes": [],
         }
@@ -1641,17 +1802,22 @@ def api_add_list(player_id):
     data = request.get_json()
     name = data.get("name", "").strip()
     text = data.get("text", "").strip()
+    force_disposition = normalize_force_disposition(data.get("force_disposition"))
     if not name:
         return jsonify({"error": "List name is required"}), 400
     if not text:
         return jsonify({"error": "List text is required"}), 400
+    if not force_disposition:
+        return jsonify({"error": "Force disposition is required"}), 400
 
     players = load_players()
     for p in players:
         if p["id"] == player_id:
             p.setdefault("list_names", [])
+            p.setdefault("list_force_dispositions", [])
             p["lists"].append(text)
             p["list_names"].append(name)
+            p["list_force_dispositions"].append(force_disposition)
             # if it's the first list, make it default
             if p["default_index"] is None:
                 p["default_index"] = 0
@@ -1675,10 +1841,13 @@ def api_update_list(player_id, list_index):
     data = request.get_json(silent=True) or {}
     name = (data.get("name") or "").strip()
     text = (data.get("text") or "").strip()
+    force_disposition = normalize_force_disposition(data.get("force_disposition"))
     if not name:
         return jsonify({"error": "List name is required"}), 400
     if not text:
         return jsonify({"error": "List text is required"}), 400
+    if not force_disposition:
+        return jsonify({"error": "Force disposition is required"}), 400
 
     players = load_players()
     for p in players:
@@ -1690,9 +1859,13 @@ def api_update_list(player_id, list_index):
             p.setdefault("list_names", [])
             while len(p["list_names"]) < len(lists):
                 p["list_names"].append(f"List #{len(p['list_names']) + 1}")
+            p.setdefault("list_force_dispositions", [])
+            while len(p["list_force_dispositions"]) < len(lists):
+                p["list_force_dispositions"].append("")
 
             p["lists"][list_index] = text
             p["list_names"][list_index] = name
+            p["list_force_dispositions"][list_index] = force_disposition
             save_players(players)
             return jsonify(p)
     return jsonify({"error": "Player not found"}), 404
@@ -1711,6 +1884,11 @@ def api_delete_list(player_id, list_index):
                 p["lists"].pop(list_index)
                 if isinstance(p.get("list_names"), list) and list_index < len(p["list_names"]):
                     p["list_names"].pop(list_index)
+                if (
+                    isinstance(p.get("list_force_dispositions"), list)
+                    and list_index < len(p["list_force_dispositions"])
+                ):
+                    p["list_force_dispositions"].pop(list_index)
                 # adjust default_index
                 if p["default_index"] is not None:
                     if list_index == p["default_index"]:
@@ -1781,11 +1959,14 @@ def api_add_player_archetype(player_id):
     faction = (payload.get("faction") or "").strip()
     role = (payload.get("role") or "").strip().lower()
     comment = (payload.get("comment") or "").strip()
+    force_disposition = normalize_force_disposition(payload.get("force_disposition"))
 
     if not faction:
         return jsonify({"error": "Faction is required"}), 400
     if role not in ALLOWED_ARCHETYPE_ROLES:
         return jsonify({"error": "Role must be defense, attack, or blunt"}), 400
+    if payload.get("force_disposition") and not force_disposition:
+        return jsonify({"error": "Invalid force disposition"}), 400
 
     players = load_players()
     for p in players:
@@ -1799,6 +1980,7 @@ def api_add_player_archetype(player_id):
             archetypes.append({
                 "faction": faction,
                 "role": role,
+                "force_disposition": force_disposition,
                 "comment": comment
             })
             save_players(players)
@@ -1849,14 +2031,18 @@ def api_create_game():
         faction = (a.get("faction") or "").strip()
         lst = (a.get("list") or "").strip()
         player_name = (a.get("player_name") or "").strip()
+        force_disposition = normalize_force_disposition(a.get("force_disposition"))
         if not faction or not lst:
             return jsonify({"error": "Each army needs a faction and a list text"}), 400
+        if not force_disposition:
+            return jsonify({"error": "Each army needs a force disposition"}), 400
         if faction in seen_factions:
             return jsonify({"error": "Each faction must be unique (no duplicates)"}), 400
         seen_factions.add(faction)
         normalized_armies.append({
             "player_name": player_name,
             "faction": faction,
+            "force_disposition": force_disposition,
             "list": lst,
         })
 
@@ -1911,7 +2097,7 @@ def api_get_game_matrix(game_id):
         return jsonify({"error": "Game not found"}), 404
 
     roster = game.get("roster", [])
-    roster_locked = isinstance(roster, list) and len(roster) == 8
+    roster_locked = isinstance(roster, list) and len(roster) > 0
 
     matrix = game.get("matrix", {})
 
@@ -1921,7 +2107,6 @@ def api_get_game_matrix(game_id):
             "opponent_name": game.get("opponent_name"),
             "armies": game.get("armies", []),
             "created_at": game.get("created_at"),
-            "mission": game.get("mission", ""),
             "comment": game.get("comment", ""),
         },
         "roster_locked": roster_locked,
@@ -1946,23 +2131,18 @@ def api_save_game_matrix(game_id):
     roster = game.get("roster", [])
     roster_ids = {p.get("player_id") for p in roster if isinstance(p, dict)}
 
-    if len(roster_ids) != 8:
+    if not roster_ids:
         return jsonify({"error": "Roster not locked yet for this game"}), 400
     
     payload = request.get_json(silent=True) or {}
     entries = payload.get("entries", [])
     comment = payload.get("comment", "")
-    mission = payload.get("mission", "")
     if not isinstance(entries, list):
         return jsonify({"error": "entries must be a list"}), 400
     if comment is None:
         comment = ""
     if not isinstance(comment, str):
         return jsonify({"error": "comment must be a string"}), 400
-    if mission is None:
-        mission = ""
-    if not isinstance(mission, str):
-        return jsonify({"error": "mission must be a string"}), 400
 
     prev_matrix = game.get("matrix", {}) if isinstance(game.get("matrix"), dict) else {}
     new_matrix = {}
@@ -1985,7 +2165,6 @@ def api_save_game_matrix(game_id):
 
     game["matrix"] = new_matrix
     game["comment"] = comment.strip()
-    game["mission"] = mission.strip()
     save_games(games)
 
     armies = game.get("armies", [])
@@ -2034,7 +2213,18 @@ def api_save_game_pairings(game_id):
 
     used_players = set()
     used_armies = set()
-    used_layouts = set()
+
+    roster = game.get("roster") if isinstance(game.get("roster"), list) else []
+    armies = game.get("armies") if isinstance(game.get("armies"), list) else []
+    player_force_by_id = {
+        entry.get("player_id"): normalize_force_disposition(entry.get("list_force_disposition"))
+        for entry in roster
+        if isinstance(entry, dict) and isinstance(entry.get("player_id"), int)
+    }
+    opponent_force_by_index = {
+        index: normalize_force_disposition(army.get("force_disposition") if isinstance(army, dict) else "")
+        for index, army in enumerate(armies)
+    }
 
     for p in pairings:
         if not isinstance(p, dict):
@@ -2043,7 +2233,7 @@ def api_save_game_pairings(game_id):
         game_no = p.get("game_no")
         player_id = p.get("player_id")
         army_index = p.get("army_index")
-        layout_n = p.get("layout_n")
+        terrain_map_id_value = p.get("terrain_map_id")
 
         # allow empty slots
         if player_id is None or army_index is None:
@@ -2053,15 +2243,23 @@ def api_save_game_pairings(game_id):
             return jsonify({"error": "game_no must be 1..8"}), 400
         if not isinstance(player_id, int) or not isinstance(army_index, int):
             return jsonify({"error": "player_id and army_index must be int"}), 400
-        if not isinstance(layout_n, int) or layout_n <= 0:
-            return jsonify({"error": "layout_n must be a positive integer"}), 400
 
         if player_id in used_players:
             return jsonify({"error": "A player is used more than once"}), 400
         if army_index in used_armies:
             return jsonify({"error": "An opponent list is used more than once"}), 400
-        if layout_n in used_layouts:
-            return jsonify({"error": "A layout number is used more than once"}), 400
+
+        if terrain_map_id_value is not None:
+            if not isinstance(terrain_map_id_value, str) or not terrain_map_id_value.strip():
+                return jsonify({"error": "terrain_map_id must be a non-empty string or null"}), 400
+
+            our_force = player_force_by_id.get(player_id, "")
+            opponent_force = opponent_force_by_index.get(army_index, "")
+            if not valid_terrain_map_id(terrain_map_id_value, our_force, opponent_force):
+                return jsonify({
+                    "error": "terrain_map_id is not valid for this force disposition matchup"
+                }), 400
+            p["terrain_map_id"] = terrain_map_id_value.strip()
         
         real_score = p.get("real_score")
         if real_score is not None:
@@ -2071,13 +2269,11 @@ def api_save_game_pairings(game_id):
 
         used_players.add(player_id)
         used_armies.add(army_index)
-        used_layouts.add(layout_n)
 
     game["pairings"] = pairings
     save_games(games)
 
     opp = game.get("opponent_name") or "Unknown opponent"
-    scenario_label = SCENARIO_LABELS.get(game.get("scenario"), game.get("scenario") or "Unknown")
 
     roster_map = {}
     roster = game.get("roster", [])
@@ -2090,6 +2286,22 @@ def api_save_game_pairings(game_id):
         roster_map = {p.get("id"): p.get("name") or f"Player {p.get('id')}" for p in players if isinstance(p, dict)}
 
     armies = game.get("armies", [])
+
+    def describe_terrain_choice(pairing):
+        player_id = pairing.get("player_id")
+        army_index = pairing.get("army_index")
+        terrain_id = pairing.get("terrain_map_id")
+        if not isinstance(player_id, int) or not isinstance(army_index, int):
+            return "—"
+        if not isinstance(terrain_id, str) or not terrain_id.strip():
+            return "Not selected"
+
+        our_force = player_force_by_id.get(player_id, "")
+        opponent_force = opponent_force_by_index.get(army_index, "")
+        for option in terrain_options_for(our_force, opponent_force):
+            if option["id"] == terrain_id.strip():
+                return f"{option['combination']} · {option['label']}"
+        return terrain_id.strip()
 
     def describe_pairing(pairing):
         player_id = pairing.get("player_id")
@@ -2130,6 +2342,7 @@ def api_save_game_pairings(game_id):
             p.get("player_id") != prev.get("player_id")
             or p.get("army_index") != prev.get("army_index")
             or p.get("layout_n") != prev.get("layout_n")
+            or p.get("terrain_map_id") != prev.get("terrain_map_id")
         ):
             structure_changed = True
 
@@ -2146,15 +2359,14 @@ def api_save_game_pairings(game_id):
             if player_id is None or army_index is None:
                 continue
             player_name, opp_player, faction = describe_pairing(p)
-            layout_n = p.get("layout_n")
-            layout_text = f" · Layout #{layout_n}" if isinstance(layout_n, int) else ""
+            terrain_text = describe_terrain_choice(p)
             summary_lines.append(
-                f"G{p.get('game_no')}: {player_name} vs {opp_player} ({faction}){layout_text}"
+                f"G{p.get('game_no')}: {player_name} vs {opp_player} ({faction}) · Terrain: {terrain_text}"
             )
 
         summary_text = "\n".join(summary_lines) if summary_lines else "No matchups assigned yet."
         send_discord_message(
-            f"Pairings saved vs **{opp}** (Scenario: {scenario_label}).\n{summary_text}"
+            f"Pairings saved vs **{opp}**.\n{summary_text}"
         )
 
     def count_scores(items):
@@ -2619,6 +2831,19 @@ def api_list_layouts():
     return jsonify(out)
 
 
+@app.route("/api/terrain-layouts", methods=["GET"])
+@login_required
+def api_list_terrain_layouts():
+    return jsonify({
+        "force_dispositions": FORCE_DISPOSITIONS,
+        "maps_per_combination": TERRAIN_MAPS_PER_COMBINATION,
+        "image_directory": "data/terrain",
+        "filename_pattern": "{Your-Force}_vs_{Opponent-Force}_Layout-{A|B|C}.png",
+        "supported_extensions": [ext.lstrip(".") for ext in TERRAIN_IMAGE_EXTENSIONS],
+        "combinations": all_terrain_layouts(),
+    })
+
+
 
 @app.route("/api/games/<int:game_id>/optimize", methods=["GET"])
 def api_optimize_pairing(game_id):
@@ -2637,17 +2862,19 @@ def api_optimize_pairing(game_id):
     armies = game.get("armies", [])
     matrix = game.get("matrix", {})  # key "playerId-armyIndex" -> state
 
-    if len(players) != 8:
-        return jsonify({"error": f"Need exactly 8 roster players (found {len(players)})"}), 400
-    if len(armies) != 8:
-        return jsonify({"error": f"Need exactly 8 opponent codex (found {len(armies)})"}), 400
+    if not players:
+        return jsonify({"error": "Need at least 1 roster player"}), 400
+    if len(armies) < len(players):
+        return jsonify({
+            "error": f"Need at least as many opponent codex as roster players ({len(armies)} vs {len(players)})"
+        }), 400
 
     # Build score table score[i][j]
     score = []
     missing = []
     for i, p in enumerate(players):
         row = []
-        for j in range(8):
+        for j in range(len(armies)):
             key = f"{p['id']}-{j}"
             state = matrix.get(key)
             val = STATE_TO_SCORE.get(state)
@@ -2665,9 +2892,9 @@ def api_optimize_pairing(game_id):
 
     # brute force best assignments
     best = []
-    for perm in itertools.permutations(range(8)):  # perm[i] = army assigned to player i
+    for perm in itertools.permutations(range(len(armies)), len(players)):  # perm[i] = army assigned to player i
         total = 0.0
-        for i in range(8):
+        for i in range(len(players)):
             total += score[i][perm[i]]
         best.append((total, perm))
 
@@ -2676,7 +2903,7 @@ def api_optimize_pairing(game_id):
 
     def pack_solution(total, perm):
         pairings = []
-        for i in range(8):
+        for i in range(len(players)):
             p = players[i]
             a_idx = perm[i]
             a = armies[a_idx]
@@ -2686,6 +2913,7 @@ def api_optimize_pairing(game_id):
                 "player_name": p.get("name"),
                 "army_index": a_idx,
                 "faction": a.get("faction"),
+                "force_disposition": normalize_force_disposition(a.get("force_disposition")),
                 "state": state,
                 "expected": STATE_TO_SCORE.get(state, 0.0),
             })
@@ -2705,15 +2933,15 @@ def api_set_game_roster(game_id):
         return jsonify({"error": "Game not found"}), 404
 
     # Don’t allow changes once locked
-    if isinstance(game.get("roster"), list) and len(game["roster"]) == 8:
+    if isinstance(game.get("roster"), list) and len(game["roster"]) > 0:
         return jsonify({"error": "Roster already locked for this game"}), 400
 
     payload = request.get_json(silent=True) or {}
     player_ids = payload.get("player_ids")
 
-    if not isinstance(player_ids, list) or len(player_ids) != 8:
-        return jsonify({"error": "You must select exactly 8 players"}), 400
-    if len(set(player_ids)) != 8 or not all(isinstance(x, int) for x in player_ids):
+    if not isinstance(player_ids, list) or not (1 <= len(player_ids) <= 8):
+        return jsonify({"error": "Select between 1 and 8 players"}), 400
+    if len(set(player_ids)) != len(player_ids) or not all(isinstance(x, int) for x in player_ids):
         return jsonify({"error": "Invalid player_ids"}), 400
 
     players = load_players()
@@ -2731,6 +2959,7 @@ def api_set_game_roster(game_id):
             "player_id": pid,
             "player_name": p.get("name") or f"Player {pid}",
             "list_name": default_list_name(p),
+            "list_force_disposition": default_force_disposition(p),
             "list_text": default_list_text(p) or "No default list"
         })
 
@@ -2783,6 +3012,12 @@ def api_report():
         scenario = g.get("scenario")
         matrix = g.get("matrix") or {}
         armies = g.get("armies") or []
+        roster = g.get("roster") or []
+        roster_force_by_id = {
+            entry.get("player_id"): normalize_force_disposition(entry.get("list_force_disposition"))
+            for entry in roster
+            if isinstance(entry, dict) and isinstance(entry.get("player_id"), int)
+        }
         pairings = g.get("pairings") or []
 
         for pr in pairings:
@@ -2814,15 +3049,29 @@ def api_report():
                 d = None
 
             faction = None
+            force_disposition = None
+            terrain_label = None
+            terrain_map_id_value = pr.get("terrain_map_id")
             if isinstance(aidx, int) and 0 <= aidx < len(armies):
-                faction = armies[aidx].get("faction")
+                army = armies[aidx]
+                faction = army.get("faction")
+                force_disposition = normalize_force_disposition(army.get("force_disposition"))
+                if isinstance(terrain_map_id_value, str) and terrain_map_id_value.strip():
+                    our_force = roster_force_by_id.get(pid, "")
+                    for option in terrain_options_for(our_force, force_disposition):
+                        if option["id"] == terrain_map_id_value.strip():
+                            terrain_label = f"{option['combination']} · {option['label']}"
+                            break
 
             row["details"].append({
                 "game_id": gid,
                 "opponent": opp,
                 "game_no": pr.get("game_no"),
                 "faction": faction,
+                "force_disposition": force_disposition,
                 "scenario": scenario,
+                "terrain_map_id": terrain_map_id_value if isinstance(terrain_map_id_value, str) else None,
+                "terrain": terrain_label,
                 "real_score": real,
                 "state": state,
                 "expected": expected,
@@ -2880,12 +3129,18 @@ def api_add_player_match(player_id):
     faction = (payload.get("faction") or "").strip()
     result = (payload.get("result") or "").strip().upper()  # WIN/DRAW/LOSS
     opponent_level = payload.get("opponent_level")
+    player_force_disposition = normalize_force_disposition(payload.get("player_force_disposition"))
+    opponent_force_disposition = normalize_force_disposition(payload.get("opponent_force_disposition"))
     comment = (payload.get("comment") or "").strip()
 
     if not faction:
         return jsonify({"error": "Faction is required"}), 400
     if result not in {"WIN", "DRAW", "LOSS"}:
         return jsonify({"error": "Result must be WIN, DRAW or LOSS"}), 400
+    if not player_force_disposition:
+        return jsonify({"error": "Your force disposition is required"}), 400
+    if not opponent_force_disposition:
+        return jsonify({"error": "Opponent force disposition is required"}), 400
     if opponent_level is None:
         return jsonify({"error": "Opponent level is required"}), 400
     try:
@@ -2910,6 +3165,8 @@ def api_add_player_match(player_id):
         "faction": faction,
         "result": result,
         "opponent_level": opponent_level,
+        "player_force_disposition": player_force_disposition,
+        "opponent_force_disposition": opponent_force_disposition,
         "comment": comment
     }
     p["match_history"].append(entry)
@@ -2979,6 +3236,12 @@ def api_game_lists_pdf(game_id):
             return snap_name.strip()
         return default_list_name(player)
 
+    def get_default_force_disposition(player):
+        snap_force = player.get("list_force_disposition")
+        if isinstance(snap_force, str) and snap_force.strip():
+            return normalize_force_disposition(snap_force)
+        return default_force_disposition(player)
+
     buffer = BytesIO()
     c = canvas.Canvas(buffer, pagesize=A4)
     width, height = A4
@@ -2995,6 +3258,7 @@ def api_game_lists_pdf(game_id):
     for p in roster_players:
         name = p.get("name") or f"Player {p.get('id')}"
         list_name = get_default_list_name(p)
+        force_disposition = get_default_force_disposition(p)
         list_text = get_default_list_text(p)
 
         # Page break if needed
@@ -3007,7 +3271,10 @@ def api_game_lists_pdf(game_id):
 
         # Player header
         c.setFont("Helvetica-Bold", 12)
-        c.drawString(left_margin, y, f"{name} - {list_name}")
+        header = f"{name} - {list_name}"
+        if force_disposition:
+            header = f"{header} - {force_disposition}"
+        c.drawString(left_margin, y, header)
         y -= 16
 
         # List text (monospace style)

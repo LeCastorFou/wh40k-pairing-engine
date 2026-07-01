@@ -36,6 +36,14 @@ const ROLES = [
   { value: "blunt", label: "Blunt" }
 ];
 
+const FORCE_DISPOSITIONS = [
+  "Priority assets",
+  "Recon",
+  "Take and hold",
+  "Purge the foes",
+  "Disruption"
+];
+
 let playersCache = [];
 let roster = Array.from({ length: 8 }, () => null);
 
@@ -52,6 +60,17 @@ function factionColor(faction) {
 function formatRole(role) {
   const match = ROLES.find(r => r.value === role);
   return match ? match.label : role;
+}
+
+function formatForceDisposition(value) {
+  return FORCE_DISPOSITIONS.find(item => item.toLowerCase() === String(value || "").trim().toLowerCase()) || "";
+}
+
+function formatArchetypeDetail(item) {
+  const parts = [item.faction, formatRole(item.role)];
+  const forceDisposition = formatForceDisposition(item.force_disposition);
+  if (forceDisposition) parts.push(forceDisposition);
+  return parts.filter(Boolean).join(" — ");
 }
 
 function setStatus(message, type = "") {
@@ -108,7 +127,7 @@ function sortPlayers(players) {
 }
 
 function buildArchetypeLabel(archetype) {
-  const base = `${archetype.faction} — ${formatRole(archetype.role)}`;
+  const base = formatArchetypeDetail(archetype);
   if (archetype.comment) {
     return `${base} • ${archetype.comment}`;
   }
@@ -129,6 +148,7 @@ function createArchetypeChip(archetype, player, index) {
       player_name: player.name || `Player ${player.id}`,
       faction: archetype.faction,
       role: archetype.role,
+      force_disposition: formatForceDisposition(archetype.force_disposition),
       comment: archetype.comment || ""
     };
     e.dataTransfer.setData("application/json", JSON.stringify(payload));
@@ -182,6 +202,21 @@ function createFactionSelect() {
   return select;
 }
 
+function createForceDispositionSelect() {
+  const select = document.createElement("select");
+  const empty = document.createElement("option");
+  empty.value = "";
+  empty.textContent = "Force disposition";
+  select.appendChild(empty);
+  FORCE_DISPOSITIONS.forEach(value => {
+    const opt = document.createElement("option");
+    opt.value = value;
+    opt.textContent = value;
+    select.appendChild(opt);
+  });
+  return select;
+}
+
 function renderPlayers() {
   const container = document.getElementById("players-container");
   container.innerHTML = "";
@@ -228,6 +263,7 @@ function renderPlayers() {
 
     const factionSelect = createFactionSelect();
     const roleSelect = createRoleSelect();
+    const forceSelect = createForceDispositionSelect();
     const commentInput = document.createElement("input");
     commentInput.type = "text";
     commentInput.placeholder = "Short comment";
@@ -246,6 +282,7 @@ function renderPlayers() {
       if (archetypes.length >= 3) return;
       const faction = factionSelect.value.trim();
       const role = roleSelect.value.trim();
+      const forceDisposition = forceSelect.value.trim();
       const comment = commentInput.value.trim();
 
       if (!faction || !role) {
@@ -253,10 +290,10 @@ function renderPlayers() {
         return;
       }
 
-      await addArchetype(player.id, { faction, role, comment });
+      await addArchetype(player.id, { faction, role, force_disposition: forceDisposition, comment });
     });
 
-    form.append(factionSelect, roleSelect, commentInput, addBtn);
+    form.append(factionSelect, roleSelect, forceSelect, commentInput, addBtn);
 
     card.append(header, archetypeList, form);
     container.appendChild(card);
@@ -381,7 +418,7 @@ function renderRoster() {
 
       const meta = document.createElement("div");
       meta.className = "roster-meta";
-      const detail = `${slot.faction} — ${formatRole(slot.role)}`;
+      const detail = formatArchetypeDetail(slot);
       meta.textContent = slot.comment ? `${detail} • ${slot.comment}` : detail;
 
       item.append(player, meta);
@@ -414,7 +451,10 @@ function buildRosterMessage() {
       lines.push(`Slot ${index + 1}: —`);
       return;
     }
-    const detail = `${slot.faction} (${formatRole(slot.role)})`;
+    const forceDisposition = formatForceDisposition(slot.force_disposition);
+    const detail = forceDisposition
+      ? `${slot.faction} (${formatRole(slot.role)} · ${forceDisposition})`
+      : `${slot.faction} (${formatRole(slot.role)})`;
     const comment = slot.comment ? ` — ${slot.comment}` : "";
     const name = slot.player_name || `Player ${slot.player_id}`;
     lines.push(`Slot ${index + 1}: ${name} — ${detail}${comment}`);

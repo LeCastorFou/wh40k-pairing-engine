@@ -5,6 +5,14 @@ async function fetchPlayer(pid) {
   return data;
 }
 
+const FORCE_DISPOSITIONS = [
+  "Priority assets",
+  "Recon",
+  "Take and hold",
+  "Purge the foes",
+  "Disruption"
+];
+
 async function addMatch(pid, payload) {
   const res = await fetch(`/api/players/${pid}/matches`, {
     method: "POST",
@@ -21,6 +29,27 @@ async function deleteMatch(pid, matchId) {
   const data = await res.json();
   if (!res.ok) throw new Error(data.error || "Failed to delete match");
   return data;
+}
+
+function forceDispositionLabel(value) {
+  return (value || "").toString().trim();
+}
+
+function populateForceDispositionSelect(selectEl, placeholder) {
+  if (!selectEl) return;
+  selectEl.innerHTML = "";
+
+  const empty = document.createElement("option");
+  empty.value = "";
+  empty.textContent = placeholder;
+  selectEl.appendChild(empty);
+
+  FORCE_DISPOSITIONS.forEach(value => {
+    const option = document.createElement("option");
+    option.value = value;
+    option.textContent = value;
+    selectEl.appendChild(option);
+  });
 }
 
 function computeWinrate(hist) {
@@ -65,7 +94,10 @@ function renderLists(player) {
     tag.className = "pill";
     tag.style.marginBottom = ".5rem";
     const listName = (player.list_names?.[idx] || `List #${idx + 1}`).trim();
-    tag.textContent = (typeof def === "number" && def === idx) ? `Default list - ${listName}` : listName;
+    const forceDisposition = forceDispositionLabel(player.list_force_dispositions?.[idx] || "");
+    const titleParts = [(typeof def === "number" && def === idx) ? `Default list - ${listName}` : listName];
+    if (forceDisposition) titleParts.push(forceDisposition);
+    tag.textContent = titleParts.join(" · ");
 
     const pre = document.createElement("pre");
     pre.style.margin = "0";
@@ -95,6 +127,8 @@ function renderHistory(player) {
     <tr>
       <th>Date</th>
       <th>Faction</th>
+      <th>Your dispo</th>
+      <th>Opponent dispo</th>
       <th>Result</th>
       <th>Opponent</th>
       <th>Comment</th>
@@ -116,6 +150,16 @@ function renderHistory(player) {
     const tdFaction = document.createElement("td");
     tdFaction.textContent = m.faction || "—";
     tr.appendChild(tdFaction);
+
+    const tdPlayerForce = document.createElement("td");
+    tdPlayerForce.textContent = forceDispositionLabel(m.player_force_disposition) || "—";
+    tdPlayerForce.className = "muted";
+    tr.appendChild(tdPlayerForce);
+
+    const tdOpponentForce = document.createElement("td");
+    tdOpponentForce.textContent = forceDispositionLabel(m.opponent_force_disposition) || "—";
+    tdOpponentForce.className = "muted";
+    tr.appendChild(tdOpponentForce);
 
     const tdRes = document.createElement("td");
     const r = (m.result || "").toUpperCase();
@@ -172,19 +216,35 @@ async function load() {
 }
 
 document.addEventListener("DOMContentLoaded", async () => {
+  const playerForceSelect = document.getElementById("match-player-force-disposition");
+  const opponentForceSelect = document.getElementById("match-opponent-force-disposition");
+  populateForceDispositionSelect(playerForceSelect, "Your force disposition");
+  populateForceDispositionSelect(opponentForceSelect, "Opponent force disposition");
+
   const btn = document.getElementById("add-match-btn");
   btn.addEventListener("click", async () => {
     const err = document.getElementById("err");
     err.textContent = "";
 
     const faction = document.getElementById("match-faction").value.trim();
+    const player_force_disposition = playerForceSelect.value.trim();
+    const opponent_force_disposition = opponentForceSelect.value.trim();
     const result = document.getElementById("match-result").value;
     const opponent_level = parseInt(document.getElementById("match-level").value, 10);
     const comment = document.getElementById("match-comment").value.trim();
 
     try {
-      await addMatch(window.PLAYER_ID, { faction, result, opponent_level, comment });
+      await addMatch(window.PLAYER_ID, {
+        faction,
+        player_force_disposition,
+        opponent_force_disposition,
+        result,
+        opponent_level,
+        comment
+      });
       document.getElementById("match-faction").value = "";
+      playerForceSelect.value = "";
+      opponentForceSelect.value = "";
       document.getElementById("match-comment").value = "";
       await load();
     } catch (e) {

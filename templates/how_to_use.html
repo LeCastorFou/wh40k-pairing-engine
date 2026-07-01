@@ -1,0 +1,460 @@
+<!DOCTYPE html>
+<!--
+  Agent note: when changing user-visible app behavior, review and update this
+  dedicated How To Use page in the same change.
+-->
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>How To Use - 40K Pairing</title>
+  <style>
+    @import url('https://fonts.googleapis.com/css2?family=Cinzel:wght@400;700&family=Roboto:wght@300;400;500&display=swap');
+
+    * { box-sizing: border-box; }
+
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: 'Roboto', sans-serif;
+      background: radial-gradient(circle at top, #333 0, #050509 50%, #000 100%);
+      color: #f5f5f5;
+      padding: 2rem;
+      line-height: 1.55;
+    }
+
+    a {
+      color: #e57373;
+      text-decoration: none;
+    }
+
+    a:hover { text-decoration: underline; }
+
+    .layout {
+      width: min(1180px, 100%);
+      margin: 0 auto;
+    }
+
+    .top-bar {
+      display: flex;
+      justify-content: space-between;
+      align-items: flex-start;
+      gap: 1rem;
+      flex-wrap: wrap;
+      margin-bottom: 1.5rem;
+    }
+
+    h1 {
+      font-family: 'Cinzel', serif;
+      font-weight: 700;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      margin: 0 0 0.35rem;
+      font-size: 1.9rem;
+    }
+
+    .kicker {
+      font-size: 0.75rem;
+      letter-spacing: 0.25em;
+      text-transform: uppercase;
+      color: #c0392b;
+      margin-bottom: 0.45rem;
+    }
+
+    .teamline {
+      color: #bbb;
+      font-size: 0.85rem;
+      text-transform: uppercase;
+      letter-spacing: 0.16em;
+    }
+
+    .teamline strong { color: #e74c3c; font-weight: 500; }
+
+    .back-link {
+      font-size: 0.85rem;
+      text-transform: uppercase;
+      letter-spacing: 0.16em;
+    }
+
+    .panel {
+      background: linear-gradient(145deg, rgba(10,10,15,0.96), rgba(5,5,8,0.98));
+      border: 1px solid rgba(255,255,255,0.08);
+      border-radius: 14px;
+      padding: 1.2rem 1.35rem;
+      box-shadow: 0 0 28px rgba(0,0,0,0.85);
+      margin-bottom: 1rem;
+      position: relative;
+      overflow: hidden;
+    }
+
+    .panel::before {
+      content: "";
+      position: absolute;
+      inset: -40%;
+      background:
+        radial-gradient(circle at 0% 0%, rgba(255,0,0,0.08), transparent 55%),
+        radial-gradient(circle at 100% 100%, rgba(255,255,255,0.04), transparent 55%);
+      opacity: 0.55;
+      pointer-events: none;
+    }
+
+    .panel-inner { position: relative; z-index: 1; }
+
+    h2 {
+      margin: 0 0 0.7rem;
+      font-size: 1rem;
+      text-transform: uppercase;
+      letter-spacing: 0.18em;
+      font-weight: 500;
+    }
+
+    h3 {
+      margin: 1rem 0 0.35rem;
+      font-size: 0.9rem;
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
+      color: #ddd;
+    }
+
+    p {
+      margin: 0.35rem 0;
+      color: #d2d2d2;
+      font-size: 0.92rem;
+    }
+
+    .grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+      gap: 1rem;
+    }
+
+    .section-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+      gap: 0.8rem;
+      margin-top: 0.8rem;
+    }
+
+    .mini-card {
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 10px;
+      background: rgba(8,8,12,0.82);
+      padding: 0.85rem 0.9rem;
+    }
+
+    .mini-card h3:first-child { margin-top: 0; }
+
+    ul, ol {
+      margin: 0.5rem 0 0;
+      padding-left: 1.2rem;
+      color: #d2d2d2;
+      font-size: 0.9rem;
+    }
+
+    li { margin: 0.35rem 0; }
+
+    strong { color: #e57373; font-weight: 500; }
+
+    .pill-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 0.45rem;
+      margin-top: 0.7rem;
+    }
+
+    .pill {
+      display: inline-flex;
+      align-items: center;
+      border-radius: 999px;
+      border: 1px solid rgba(255,255,255,0.14);
+      background: rgba(255,255,255,0.05);
+      color: #ddd;
+      font-size: 0.75rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      padding: 0.25rem 0.65rem;
+    }
+
+    .flow {
+      counter-reset: step;
+      display: grid;
+      gap: 0.65rem;
+    }
+
+    .flow-item {
+      counter-increment: step;
+      display: grid;
+      grid-template-columns: 1.8rem 1fr;
+      gap: 0.65rem;
+      align-items: start;
+      color: #d2d2d2;
+      font-size: 0.92rem;
+    }
+
+    .flow-item::before {
+      content: counter(step);
+      width: 1.45rem;
+      height: 1.45rem;
+      border-radius: 999px;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border: 1px solid rgba(231,76,60,0.55);
+      color: #ffcdd2;
+      background: rgba(183,28,28,0.2);
+      font-size: 0.72rem;
+    }
+
+    .link-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+      gap: 0.65rem;
+      margin-top: 0.8rem;
+    }
+
+    .link-card {
+      display: block;
+      border: 1px solid rgba(255,255,255,0.1);
+      border-radius: 10px;
+      background: rgba(10,10,15,0.9);
+      padding: 0.75rem 0.85rem;
+      color: #f5f5f5;
+    }
+
+    .link-card span {
+      display: block;
+      color: #aaa;
+      font-size: 0.78rem;
+      margin-top: 0.2rem;
+    }
+
+    @media (max-width: 700px) {
+      body { padding: 1.2rem; }
+      h1 { font-size: 1.45rem; }
+    }
+  </style>
+</head>
+<body>
+  <div class="layout">
+    <div class="top-bar">
+      <div>
+        <div class="kicker">Documentation</div>
+        <h1>How To Use</h1>
+        <div class="teamline">
+          Team: <strong>{{ team_name }}</strong>
+          {% if auth_context.ready %}
+            · {{ auth_context.role|title }}
+          {% elif authenticated %}
+            · Team selection required
+          {% endif %}
+        </div>
+      </div>
+      <a href="{{ url_for('index') }}" class="back-link">&larr; Back to Command Centre</a>
+    </div>
+
+    <section class="panel">
+      <div class="panel-inner">
+        <h2>Purpose</h2>
+        <p>
+          The app is a team pairing workspace for Warhammer 40,000 events. It centralizes players, lists,
+          force dispositions, opponent data, matchup matrices, pairing decisions, schedules, and reports.
+        </p>
+        <div class="pill-row">
+          <span class="pill">Priority assets</span>
+          <span class="pill">Recon</span>
+          <span class="pill">Take and hold</span>
+          <span class="pill">Purge the foes</span>
+          <span class="pill">Disruption</span>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-inner">
+        <h2>Standard Workflow</h2>
+        <div class="flow">
+          <div class="flow-item"><div><strong>Set up team access.</strong> Sign in, join or create a team, then work inside that team context.</div></div>
+          <div class="flow-item"><div><strong>Prepare players.</strong> Add players, maintain their lists, choose default lists, and record force dispositions.</div></div>
+          <div class="flow-item"><div><strong>Prepare role options.</strong> Define player archetypes for defense, attack, and blunt roles, optionally with a force disposition.</div></div>
+          <div class="flow-item"><div><strong>Create the opponent game.</strong> Enter opponent players, factions, lists, and force dispositions.</div></div>
+          <div class="flow-item"><div><strong>Lock your roster.</strong> Pick 1 to 8 players for that game, freezing their default list information into the game snapshot.</div></div>
+          <div class="flow-item"><div><strong>Fill the matrix.</strong> Rate every player versus every opponent army before pairing.</div></div>
+          <div class="flow-item"><div><strong>Run the fight page.</strong> Assign games, terrain maps, expected scores, and real scores as the round progresses.</div></div>
+          <div class="flow-item"><div><strong>Review reports.</strong> Use saved scores and match history to evaluate performance over time.</div></div>
+        </div>
+      </div>
+    </section>
+
+    <section class="grid">
+      <div class="panel">
+        <div class="panel-inner">
+          <h2>Players & Lists</h2>
+          <p>Use this area to manage the team roster and the information attached to each player.</p>
+          <ul>
+            <li>Create managed players for testing or team preparation.</li>
+            <li>Add, edit, rename, delete, and view army lists.</li>
+            <li>Assign one of the five force dispositions to each list.</li>
+            <li>Choose a default list used when locking a game roster.</li>
+            <li>Open a player profile to review lists and match history.</li>
+            <li>Add match history with faction, result, opponent level, your force disposition, opponent force disposition, and comments.</li>
+            <li>Captains can delete players; player access can use the team tools except player deletion.</li>
+          </ul>
+          <div class="link-grid">
+            <a class="link-card" href="{{ url_for('players_page') }}">Players & Lists<span>Roster and list management</span></a>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-inner">
+          <h2>Roles & Archetypes</h2>
+          <p>Use archetypes to prepare roster proposals before a game is created or before final player selection.</p>
+          <ul>
+            <li>Each player can define up to 3 archetypes.</li>
+            <li>Each archetype has a faction and a role: defense, attack, or blunt.</li>
+            <li>A force disposition can be proposed on each archetype.</li>
+            <li>Drag archetypes into the 8 roster slots to build a lineup proposal.</li>
+            <li>Save the proposal locally in the browser.</li>
+            <li>Send the proposal to Discord when a webhook is configured.</li>
+          </ul>
+          <div class="link-grid">
+            <a class="link-card" href="{{ url_for('roster_page') }}">Roles & Archetypes<span>Role deck and proposal board</span></a>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="grid">
+      <div class="panel">
+        <div class="panel-inner">
+          <h2>Create Game</h2>
+          <p>Create a game when you know the opponent team or opponent player group.</p>
+          <ul>
+            <li>Set the opponent or team name.</li>
+            <li>Add between 1 and 8 opponent armies.</li>
+            <li>For each opponent army, enter player name, faction, force disposition, and list text.</li>
+            <li>Factions must be unique inside the same game.</li>
+            <li>The game becomes available in Saved Games for matrix and fight work.</li>
+          </ul>
+          <div class="link-grid">
+            <a class="link-card" href="{{ url_for('new_game_page') }}">Create Game<span>Opponent setup</span></a>
+            <a class="link-card" href="{{ url_for('games_list_page') }}">Saved Games<span>Open existing games</span></a>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-inner">
+          <h2>Matrix</h2>
+          <p>The matrix is where the team rates every matchup before selecting pairings.</p>
+          <ul>
+            <li>Lock 1 to 8 players into the game roster before matrix work. Smaller rosters are supported for testing.</li>
+            <li>The roster snapshot stores player name, default list, list text, and force disposition.</li>
+            <li>Rate each matchup with the available states: HELP, LOOSE, S_LOOSE, GAMBLE, UNKNOWN, S_WIN, WIN, EASY.</li>
+            <li>Save matchup notes for the game.</li>
+            <li>Terrain maps are no longer chosen from a scenario layout list; they are selected during Fight pairing from the two force dispositions in each matchup.</li>
+            <li>Use the optimizer endpoint to evaluate ideal assignments when the matrix is complete.</li>
+          </ul>
+        </div>
+      </div>
+    </section>
+
+    <section class="grid">
+      <div class="panel">
+        <div class="panel-inner">
+          <h2>Fight Pairing</h2>
+          <p>The Fight page is used during the pairing process and when recording final results.</p>
+          <ul>
+            <li>Assign defenders, attackers, refused attackers, and leftover pairings through the 8 game slots.</li>
+            <li>After each matchup is selected, choose one of the 3 terrain map options generated from your force disposition versus the opponent force disposition.</li>
+            <li>Until real terrain images are uploaded, the app displays deliberate placeholders for those 3 map options.</li>
+            <li>Use saved matrix states to show expected scores for every pairing.</li>
+            <li>Use the assistant to generate pairing suggestions from the current round state.</li>
+            <li>Record real scores, compare expected versus real, and keep a complete round summary.</li>
+            <li>Fight changes auto-save after edits, with a manual save control still available.</li>
+          </ul>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-inner">
+          <h2>Reports</h2>
+          <p>Reports turn completed game results into player-level performance tracking.</p>
+          <ul>
+            <li>Review games played by each player.</li>
+            <li>Compare real score against expected matrix score.</li>
+            <li>Track average score and average delta.</li>
+            <li>Inspect details by opponent, faction, force disposition, terrain, state, and score.</li>
+            <li>Use player match history for qualitative notes outside formal team games.</li>
+          </ul>
+          <div class="link-grid">
+            <a class="link-card" href="{{ url_for('report_page') }}">Reports<span>Performance analysis</span></a>
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="grid">
+      <div class="panel">
+        <div class="panel-inner">
+          <h2>Calendar</h2>
+          <p>The calendar tracks preparation windows and team availability.</p>
+          <ul>
+            <li>Create availability entries for players.</li>
+            <li>Track scheduled sessions or game-related events.</li>
+            <li>Attach calendar items to players or games where relevant.</li>
+            <li>Use the calendar view to coordinate prep over the next planning window.</li>
+          </ul>
+          <div class="link-grid">
+            <a class="link-card" href="{{ url_for('calendar_page') }}">Calendar<span>Availability and sessions</span></a>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-inner">
+          <h2>Team & Integrations</h2>
+          <p>Team settings control shared access and communication tools.</p>
+          <ul>
+            <li>Join an existing team by password or create a new team as captain.</li>
+            <li>Switch active team when your account belongs to multiple teams.</li>
+            <li>Configure the Discord webhook used for roster proposals and team notifications.</li>
+            <li>Test webhook delivery before relying on Discord notifications.</li>
+            <li>Site admins can manage users, teams, and memberships from the admin panel.</li>
+          </ul>
+          <div class="link-grid">
+            <a class="link-card" href="{{ url_for('team_access_page') }}">Team Access<span>Join, create, switch</span></a>
+            <a class="link-card" href="{{ url_for('team_management_page') }}">Team Settings<span>Webhook and team tools</span></a>
+            {% if auth_context.is_admin %}
+              <a class="link-card" href="{{ url_for('admin_page') }}">Admin<span>Site management</span></a>
+            {% endif %}
+          </div>
+        </div>
+      </div>
+    </section>
+
+    <section class="panel">
+      <div class="panel-inner">
+        <h2>Important Notes</h2>
+        <div class="section-grid">
+          <div class="mini-card">
+            <h3>Authentication</h3>
+            <p>Most operational pages require an authenticated account and an active team. This documentation page is available before login.</p>
+          </div>
+          <div class="mini-card">
+            <h3>Snapshots</h3>
+            <p>When a roster is locked for a game, player list data is copied into the game. Later list edits do not rewrite that game snapshot.</p>
+          </div>
+          <div class="mini-card">
+            <h3>Force Dispositions</h3>
+            <p>Force dispositions exist on player lists, opponent armies, archetype proposals, and match history. Keep them updated before roster lock.</p>
+          </div>
+          <div class="mini-card">
+            <h3>Terrain Images</h3>
+            <p>The Fight page reads 3 maps per force-disposition matchup from data/terrain using names like Take-and-Hold_vs_Reconnaissance_Layout-A.png.</p>
+          </div>
+        </div>
+      </div>
+    </section>
+  </div>
+</body>
+</html>

@@ -44,26 +44,24 @@ const GAME_PHASES = [
   "Leftovers"
 ];
 
-// Prefer these labels, but if backend returns other scenario keys we’ll still show them.
-const SCENARIO_LABELS = {
-  HAMMER_ANVIL: "Hammer and Anvil",
-  SEEK_DESTROY: "Seek and Destroy",
-  CRUCIBLE_BATTLE: "Crucible Battle",
-  TIPPING_POINTS: "Tipping Points",
-  DAWN_OF_WAR: "Dawn of War",
-  SWEEPING_ENGAGEMENT: "Sweeping Engagement"
-};
+const FORCE_DISPOSITIONS = [
+  "Priority assets",
+  "Recon",
+  "Take and hold",
+  "Purge the foes",
+  "Disruption"
+];
 
 // Global state
 let gPlayers = [];
 let gArmies = [];
 let gMatrixStates = {};   // "playerId-armyIndex" -> STATE_KEY
-let gPairings = [];       // 8 slots: {game_no, player_id, army_index, layout_n, real_score}
-let gLayouts = {};        // scenarioKey -> [{n, file}, ...]
+let gPairings = [];       // 8 slots: {game_no, player_id, army_index, terrain_map_id, real_score}
+let gTerrainLayouts = {}; // "priority_assets_vs_recon" -> [{id, n, label, file, placeholder}, ...]
 
 let gDirtyPairings = false;
 let gActiveSlot = null;
-let gScenario = null;
+let gScenario = null;     // legacy field kept for existing games
 let gAutoSaveTimer = null;
 let gSaveInFlight = false;
 let gSaveQueued = false;
@@ -130,6 +128,27 @@ function getPlayerListLabel(player) {
   return defaultLabel || "No default list";
 }
 
+function getPlayerForceDisposition(player) {
+  if (typeof player?.list_force_disposition === "string" && player.list_force_disposition.trim()) {
+    return player.list_force_disposition.trim();
+  }
+
+  if (Array.isArray(player?.list_force_dispositions) && typeof player?.default_index === "number") {
+    const idx = player.default_index;
+    if (idx >= 0 && idx < player.list_force_dispositions.length) {
+      return (player.list_force_dispositions[idx] || "").trim();
+    }
+  }
+
+  return "";
+}
+
+function formatPlayerListWithForceDisposition(player) {
+  const listLabel = getPlayerListLabel(player);
+  const forceDisposition = getPlayerForceDisposition(player);
+  return forceDisposition ? `${listLabel} · ${forceDisposition}` : listLabel;
+}
+
 function getOpponentPlayerName(army, idx) {
   const trimmed = (army?.player_name || "").trim();
   return trimmed || `Opponent #${idx + 1}`;
@@ -138,6 +157,84 @@ function getOpponentPlayerName(army, idx) {
 function getOpponentFactionLabel(army, idx) {
   const trimmed = (army?.faction || "").trim();
   return trimmed || `Army #${idx + 1}`;
+}
+
+function getOpponentForceDisposition(army) {
+  return (army?.force_disposition || "").trim();
+}
+
+function normalizeForceDisposition(value) {
+  const raw = (value || "").trim();
+  return FORCE_DISPOSITIONS.find(item => item.toLowerCase() === raw.toLowerCase()) || "";
+}
+
+function slugifyTerrainPart(value) {
+  const normalized = normalizeForceDisposition(value);
+  return normalized
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^_+|_+$/g, "");
+}
+
+function terrainPairKey(ourForceDisposition, opponentForceDisposition) {
+  const ourSlug = slugifyTerrainPart(ourForceDisposition);
+  const opponentSlug = slugifyTerrainPart(opponentForceDisposition);
+  if (!ourSlug || !opponentSlug) return "";
+  return `${ourSlug}_vs_${opponentSlug}`;
+}
+
+function getPlayerBySlot(slot) {
+  if (!slot || typeof slot.player_id !== "number") return null;
+  return gPlayers.find(player => getPlayerId(player) === slot.player_id) || null;
+}
+
+function getArmyBySlot(slot) {
+  if (!slot || typeof slot.army_index !== "number") return null;
+  return gArmies[slot.army_index] || null;
+}
+
+function getTerrainOptionsForSlot(slot) {
+  const player = getPlayerBySlot(slot);
+  const army = getArmyBySlot(slot);
+  const key = terrainPairKey(getPlayerForceDisposition(player || {}), getOpponentForceDisposition(army || {}));
+  return key ? (gTerrainLayouts[key] || []) : [];
+}
+
+function getTerrainOptionForSlot(slot) {
+  const terrainId = (slot?.terrain_map_id || "").trim();
+  if (!terrainId) return null;
+  return getTerrainOptionsForSlot(slot).find(option => option.id === terrainId) || null;
+}
+
+function getTerrainCombinationLabelForSlot(slot) {
+  const player = getPlayerBySlot(slot);
+  const army = getArmyBySlot(slot);
+  const ourForce = getPlayerForceDisposition(player || {});
+  const opponentForce = getOpponentForceDisposition(army || {});
+  if (!ourForce || !opponentForce) return "";
+  return `${ourForce} vs ${opponentForce}`;
+}
+
+function getTerrainLabelForSlot(slot) {
+  if (!slot || !slot.player_id || typeof slot.army_index !== "number") return "—";
+  const combination = getTerrainCombinationLabelForSlot(slot);
+  const selected = getTerrainOptionForSlot(slot);
+  if (selected) return `${combination} · ${selected.label}`;
+  return combination ? `${combination} · not selected` : "Force disposition missing";
+}
+
+function setTerrainForSlot(slot, terrainMapId) {
+  if (!slot) return;
+  slot.terrain_map_id = terrainMapId || null;
+  slot.layout_n = null;
+  markPairingsDirty();
+  if (terrainMapId) {
+    setFightStatus(`Terrain selected for Game ${slot.game_no}.`, "unsaved");
+  }
+  refreshGameCards();
+  refreshSummaryTable();
+  refreshAllLayoutDropdowns();
+  if (gActiveSlot === slot.game_no) renderLayoutsStrip();
 }
 
 function setFightStatus(text, mode = "normal") {
@@ -204,11 +301,6 @@ function getDefaultListLabel(player) {
   return defaultLabel;
 }
 
-function scenarioLabel(key) {
-  if (!key) return "Scenario…";
-  return SCENARIO_LABELS[key] || key.replaceAll("_", " ").toLowerCase();
-}
-
 function ensure8Slots(pairingsFromServer) {
   const byGameNo = {};
   (pairingsFromServer || []).forEach(p => {
@@ -225,6 +317,7 @@ function ensure8Slots(pairingsFromServer) {
         player_id: (typeof existing.player_id === "number") ? existing.player_id : null,
         army_index: (typeof existing.army_index === "number") ? existing.army_index : null,
         layout_n: (typeof existing.layout_n === "number") ? existing.layout_n : null,
+        terrain_map_id: (typeof existing.terrain_map_id === "string" && existing.terrain_map_id.trim()) ? existing.terrain_map_id.trim() : null,
         real_score: (typeof existing.real_score === "number") ? existing.real_score : null
       });
     } else {
@@ -233,6 +326,7 @@ function ensure8Slots(pairingsFromServer) {
         player_id: null,
         army_index: null,
         layout_n: null,
+        terrain_map_id: null,
         real_score: null
       });
     }
@@ -240,96 +334,96 @@ function ensure8Slots(pairingsFromServer) {
   return slots;
 }
 
-function getUsedLayoutsSet() {
-  const used = new Set();
-  gPairings.forEach(p => {
-    if (gScenario && typeof p.layout_n === "number") {
-      used.add(`${gScenario}-${p.layout_n}`);
-    }
-  });
-  return used;
-}
-
-function populateLayoutOptions(selectEl, selectedN) {
+function populateLayoutOptions(selectEl, slot) {
   selectEl.innerHTML = "";
   const opt0 = document.createElement("option");
   opt0.value = "";
-  opt0.textContent = "Layout #…";
+  opt0.textContent = "Terrain map…";
   selectEl.appendChild(opt0);
 
-  if (!gScenario) return;
+  if (!slot || !slot.player_id || typeof slot.army_index !== "number") {
+    selectEl.disabled = true;
+    opt0.textContent = "Select matchup first";
+    return;
+  }
 
-  const layouts = gLayouts[gScenario] || [];
-  if (!layouts.length) return;
+  const options = getTerrainOptionsForSlot(slot);
+  if (!options.length) {
+    selectEl.disabled = true;
+    opt0.textContent = "Missing force disposition";
+    return;
+  }
 
-  const used = getUsedLayoutsSet();
-
-  layouts.forEach(({ n }) => {
-    const key = `${gScenario}-${n}`;
-    if (used.has(key) && n !== selectedN) return;
-
+  selectEl.disabled = false;
+  options.forEach(option => {
     const opt = document.createElement("option");
-    opt.value = String(n);
-    opt.textContent = `#${n}`;
+    opt.value = option.id;
+    opt.textContent = option.placeholder ? `${option.label} (placeholder)` : option.label;
     selectEl.appendChild(opt);
   });
 
-  if (selectedN) selectEl.value = String(selectedN);
+  selectEl.value = slot.terrain_map_id || "";
 }
 
 function renderLayoutsStrip() {
   const strip = document.getElementById("layouts-strip");
+  const hint = document.getElementById("terrain-hint");
   if (!strip) return;
   strip.innerHTML = "";
 
-  if (!gScenario) {
+  const slot = gPairings.find(item => item.game_no === gActiveSlot);
+  if (!slot || !slot.player_id || typeof slot.army_index !== "number") {
     const msg = document.createElement("div");
-    msg.style.color = "#888";
-    msg.style.fontSize = "0.85rem";
-    msg.textContent = "Select a scenario to preview available layouts.";
+    msg.className = "terrain-empty";
+    msg.textContent = "Select a game and click a matrix matchup to reveal its 3 terrain map choices.";
     strip.appendChild(msg);
+    if (hint) hint.textContent = "Terrain options appear after a matchup is selected.";
     return;
   }
 
-  const layouts = gLayouts[gScenario] || [];
-  const used = getUsedLayoutsSet();
-
-  if (!layouts.length) {
+  const combination = getTerrainCombinationLabelForSlot(slot);
+  const options = getTerrainOptionsForSlot(slot);
+  if (!options.length) {
     const msg = document.createElement("div");
-    msg.style.color = "#ff8a80";
-    msg.style.fontSize = "0.85rem";
-    msg.textContent = "No images found for this scenario in /data.";
+    msg.className = "terrain-empty terrain-error";
+    msg.textContent = "This matchup is missing a force disposition, so terrain maps cannot be proposed.";
     strip.appendChild(msg);
+    if (hint) hint.textContent = "Add force dispositions to both lists to enable terrain choices.";
     return;
   }
 
-  layouts.forEach(({ n, file }) => {
-    const key = `${gScenario}-${n}`;
-    if (used.has(key)) return;
+  if (hint) hint.textContent = `${combination}: choose one of the 3 terrain maps.`;
 
-    const wrap = document.createElement("div");
-    wrap.style.border = "1px solid rgba(255,255,255,0.12)";
-    wrap.style.borderRadius = "10px";
-    wrap.style.padding = "0.3rem";
-    wrap.style.background = "rgba(0,0,0,0.35)";
+  options.forEach(option => {
+    const card = document.createElement("button");
+    card.type = "button";
+    card.className = "terrain-card";
+    if (slot.terrain_map_id === option.id) card.classList.add("selected");
 
-    const label = document.createElement("div");
-    label.style.fontSize = "0.7rem";
-    label.style.color = "#bbb";
-    label.style.marginBottom = "0.25rem";
-    label.textContent = `Layout #${n}`;
+    const title = document.createElement("span");
+    title.className = "terrain-card-title";
+    title.textContent = option.label;
+    card.appendChild(title);
 
-    const img = document.createElement("img");
-    img.src = `/layouts/${file}`;
-    img.alt = file;
-    img.style.width = "240px";
-    img.style.maxWidth = "70vw";
-    img.style.borderRadius = "8px";
-    img.style.display = "block";
+    const meta = document.createElement("span");
+    meta.className = "terrain-card-meta";
+    meta.textContent = option.placeholder ? "Image placeholder" : combination;
+    card.appendChild(meta);
 
-    wrap.appendChild(label);
-    wrap.appendChild(img);
-    strip.appendChild(wrap);
+    if (option.file) {
+      const img = document.createElement("img");
+      img.src = `/layouts/${option.file}`;
+      img.alt = `${combination} ${option.label}`;
+      card.appendChild(img);
+    } else {
+      const placeholder = document.createElement("span");
+      placeholder.className = "terrain-placeholder";
+      placeholder.textContent = "Map image pending";
+      card.appendChild(placeholder);
+    }
+
+    card.addEventListener("click", () => setTerrainForSlot(slot, option.id));
+    strip.appendChild(card);
   });
 }
 
@@ -337,14 +431,17 @@ function describePlayerInfo(info) {
   if (!info) return "—";
   const name = info.name || "Unknown player";
   const listName = (info.list_name || "").trim();
-  return listName ? `${name} (${listName})` : name;
+  const forceDisposition = (info.force_disposition || "").trim();
+  const detail = [listName, forceDisposition].filter(Boolean).join(" · ");
+  return detail ? `${name} (${detail})` : name;
 }
 
 function describeArmyInfo(info) {
   if (!info) return "—";
   const playerName = info.player_name || `Opponent #${(info.army_index ?? 0) + 1}`;
   const faction = info.faction || `Army #${(info.army_index ?? 0) + 1}`;
-  return `${playerName} (${faction})`;
+  const forceDisposition = (info.force_disposition || "").trim();
+  return forceDisposition ? `${playerName} (${faction} · ${forceDisposition})` : `${playerName} (${faction})`;
 }
 
 function setAssistantStatus(text, mode = "normal") {
@@ -792,10 +889,6 @@ function renderAssistant(data) {
 
 function applyAssistantPlan(plan) {
   if (!Array.isArray(plan) || !plan.length) return;
-  if (!gScenario) {
-    alert("Select a Scenario first.");
-    return;
-  }
 
   const targetGames = new Set(plan.map(item => item.game_no));
   const targetPlayers = new Set(plan.map(item => item.player_id));
@@ -806,6 +899,8 @@ function applyAssistantPlan(plan) {
       if (targetPlayers.has(slot.player_id) || targetArmies.has(slot.army_index)) {
         slot.player_id = null;
         slot.army_index = null;
+        slot.layout_n = null;
+        slot.terrain_map_id = null;
         slot.real_score = null;
       }
     }
@@ -817,7 +912,11 @@ function applyAssistantPlan(plan) {
     const pairingChanged = slot.player_id !== item.player_id || slot.army_index !== item.army_index;
     slot.player_id = item.player_id;
     slot.army_index = item.army_index;
-    if (pairingChanged) slot.real_score = null;
+    if (pairingChanged) {
+      slot.layout_n = null;
+      slot.terrain_map_id = null;
+      slot.real_score = null;
+    }
   });
 
   buildMatrixTable();
@@ -826,15 +925,15 @@ function applyAssistantPlan(plan) {
   refreshAllLayoutDropdowns();
   markPairingsDirty();
 
-  const missingLayouts = plan
+  const missingTerrain = plan
     .map(item => gPairings.find(s => s.game_no === item.game_no))
-    .filter(slot => slot && !slot.layout_n)
+    .filter(slot => slot && !slot.terrain_map_id)
     .map(slot => slot.game_no);
 
-  if (missingLayouts.length) {
-    const suffix = missingLayouts.length === 1 ? "" : "s";
+  if (missingTerrain.length) {
+    const suffix = missingTerrain.length === 1 ? "" : "s";
     setFightStatus(
-      `Suggested round applied. Choose layout${suffix} for Game${suffix} ${missingLayouts.join(", ")}.`,
+      `Suggested round applied. Choose terrain map${suffix} for Game${suffix} ${missingTerrain.join(", ")}.`,
       "unsaved"
     );
   } else {
@@ -1022,8 +1121,17 @@ function buildMatrixTable() {
     factionSpan.textContent = getOpponentFactionLabel(army, idx);
     headerDiv.appendChild(factionSpan);
 
+    const forceSpan = document.createElement("div");
+    forceSpan.className = "opponent-force-disposition";
+    forceSpan.textContent = getOpponentForceDisposition(army) || "No force disposition";
+    headerDiv.appendChild(forceSpan);
+
     const tooltip = document.createElement("div");
     tooltip.className = "faction-tooltip";
+    const forceMeta = document.createElement("div");
+    forceMeta.className = "tooltip-meta";
+    forceMeta.textContent = `Force disposition: ${getOpponentForceDisposition(army) || "—"}`;
+    tooltip.appendChild(forceMeta);
     const pre = document.createElement("pre");
     pre.textContent = army.list || "No list text.";
     tooltip.appendChild(pre);
@@ -1050,7 +1158,7 @@ function buildMatrixTable() {
 
     nameLine.textContent = getPlayerName(player) || `Player ${pid}`;
     const listLine = document.createElement("div");
-    listLine.textContent = getPlayerListLabel(player);
+    listLine.textContent = formatPlayerListWithForceDisposition(player);
 
 
     wrapper.appendChild(nameLine);
@@ -1075,12 +1183,7 @@ function buildMatrixTable() {
 
       td.addEventListener("click", () => {
         if (!gActiveSlot) return;
-        const slot = gPairings.find(s => s.game_no === gActiveSlot);
-
-        if (!gScenario) {
-          alert("Select a Scenario first (Layouts section).");
-          return;
-        }
+        const selectedGameNo = gActiveSlot;
 
         const pid = getPlayerId(player);
         if (typeof pid !== "number") {
@@ -1088,14 +1191,14 @@ function buildMatrixTable() {
           return;
         }
 
-        // Allow pairing first, layout later
-        assignPairingToSlot(gActiveSlot, pid, armyIdx);
+        // Allow pairing first, terrain later
+        assignPairingToSlot(selectedGameNo, pid, armyIdx);
 
-        // UX hint: remind user to pick a layout for this game
-        const slotAfter = gPairings.find(s => s.game_no === gActiveSlot);
-        if (slotAfter && !slotAfter.layout_n) {
+        // UX hint: remind user to pick a terrain map for this game
+        const slotAfter = gPairings.find(s => s.game_no === selectedGameNo);
+        if (slotAfter && !slotAfter.terrain_map_id) {
           setFightStatus(
-            `Pairing set for Game ${gActiveSlot}. Now choose a Layout # for this game.`,
+            `Pairing set for Game ${selectedGameNo}. Choose one of the 3 terrain maps for this force disposition matchup.`,
             "unsaved"
           );
         }
@@ -1154,7 +1257,7 @@ function buildGameSlots() {
     content.id = `game-content-${slot.game_no}`;
     card.appendChild(content);
 
-    // Layout select
+    // Terrain select
     const controls = document.createElement("div");
     controls.style.display = "flex";
     controls.style.gap = "0.4rem";
@@ -1162,6 +1265,7 @@ function buildGameSlots() {
     controls.style.marginTop = "0.35rem";
 
     const layoutSelect = document.createElement("select");
+    layoutSelect.className = "terrain-select";
     layoutSelect.style.background = "#111";
     layoutSelect.style.border = "1px solid #444";
     layoutSelect.style.borderRadius = "999px";
@@ -1169,28 +1273,10 @@ function buildGameSlots() {
     layoutSelect.style.padding = "0.25rem 0.6rem";
     layoutSelect.style.fontSize = "0.7rem";
 
-    populateLayoutOptions(layoutSelect, slot.layout_n);
+    populateLayoutOptions(layoutSelect, slot);
 
     layoutSelect.addEventListener("change", () => {
-      slot.layout_n = layoutSelect.value ? parseInt(layoutSelect.value, 10) : null;
-      
-      if (slot.layout_n !== null) {
-        const usedByOther = gPairings.some(s =>
-          s.game_no !== slot.game_no && typeof s.layout_n === "number" && s.layout_n === slot.layout_n
-        );
-        if (usedByOther) {
-          alert("This layout number is already taken. Choose another.");
-          slot.layout_n = null;
-          layoutSelect.value = "";
-          return;
-        }
-      }
-      markPairingsDirty();
-      refreshGameCards();
-      refreshSummaryTable();
-
-      if (gActiveSlot === slot.game_no) renderLayoutsStrip();
-      refreshAllLayoutDropdowns();
+      setTerrainForSlot(slot, layoutSelect.value || null);
     });
 
     controls.appendChild(layoutSelect);
@@ -1206,6 +1292,7 @@ function buildGameSlots() {
       slot.player_id = null;
       slot.army_index = null;
       slot.layout_n = null;
+      slot.terrain_map_id = null;
       slot.real_score = null;
       markPairingsDirty();
       buildMatrixTable();
@@ -1233,10 +1320,10 @@ function refreshAllLayoutDropdowns() {
     const slot = gPairings.find(s => s.game_no === gameNo);
     if (!slot) return;
 
-    const layoutSelect = card.querySelector("select");
+    const layoutSelect = card.querySelector("select.terrain-select");
     if (!layoutSelect) return;
 
-    populateLayoutOptions(layoutSelect, slot.layout_n);
+    populateLayoutOptions(layoutSelect, slot);
   });
 
   renderLayoutsStrip();
@@ -1260,7 +1347,7 @@ function refreshGameCards() {
       const meta = document.createElement("span");
       meta.style.color = "#aaa";
       meta.style.marginTop = "0.1rem";
-      meta.textContent = `Scenario: ${gScenario ? scenarioLabel(gScenario) : "—"} · Layout: ${slot.layout_n ? "#" + slot.layout_n : "—"}`;
+      meta.textContent = `Terrain: ${getTerrainLabelForSlot(slot)}`;
       content.appendChild(meta);
 
       return;
@@ -1273,13 +1360,13 @@ function refreshGameCards() {
     const pSpan = document.createElement("span");
     pSpan.textContent = (getPlayerName(player) || `Player ${slot.player_id}`) + " ";
 
-    const listLabel = getPlayerListLabel(player || {});
+    const listLabel = formatPlayerListWithForceDisposition(player || {});
     const listSpan = document.createElement("span");
     listSpan.textContent = `(${listLabel})`;
 
     const aSpan = document.createElement("span");
     aSpan.textContent =
-      "vs " + getOpponentPlayerName(army, slot.army_index) + " (" + getOpponentFactionLabel(army, slot.army_index) + ")";
+      "vs " + getOpponentPlayerName(army, slot.army_index) + " (" + [getOpponentFactionLabel(army, slot.army_index), getOpponentForceDisposition(army)].filter(Boolean).join(" · ") + ")";
 
     const key = `${slot.player_id}-${slot.army_index}`;
     const stateKey = gMatrixStates[key] || "NONE";
@@ -1295,7 +1382,7 @@ function refreshGameCards() {
     const meta = document.createElement("span");
     meta.style.color = "#aaa";
     meta.style.marginTop = "0.1rem";
-    meta.textContent = `Scenario: ${gScenario ? scenarioLabel(gScenario) : "—"} · Layout: ${slot.layout_n ? "#" + slot.layout_n : "—"}`;
+    meta.textContent = `Terrain: ${getTerrainLabelForSlot(slot)}`;
 
     content.appendChild(pSpan);
     content.appendChild(listSpan);
@@ -1327,7 +1414,7 @@ function refreshSummaryTable() {
 
   const thead = document.createElement("thead");
   const hr = document.createElement("tr");
-  const headers = ["Game", "Phase", "Your player & list", "Opponent codex", "Scenario", "Layout", "Matchup", "Expected", "Real", "Δ"];
+  const headers = ["Game", "Phase", "Your player & list", "Opponent codex", "Terrain", "Matchup", "Expected", "Real", "Δ"];
   headers.forEach(h => {
     const th = document.createElement("th");
     th.textContent = h;
@@ -1356,22 +1443,19 @@ function refreshSummaryTable() {
     const tdPlayer = document.createElement("td");
     const player = gPlayers.find(p => getPlayerId(p) === slot.player_id);
     const name = getPlayerName(player) || `Player ${slot.player_id}`;
-    const listLabel = getPlayerListLabel(player || {});
+    const listLabel = formatPlayerListWithForceDisposition(player || {});
     tdPlayer.textContent = `${name} (${listLabel})`;
     tr.appendChild(tdPlayer);
 
     const tdArmy = document.createElement("td");
     const army = gArmies[slot.army_index];
-    tdArmy.textContent = `${getOpponentPlayerName(army, slot.army_index)} (${getOpponentFactionLabel(army, slot.army_index)})`;
+    const armyDetail = [getOpponentFactionLabel(army, slot.army_index), getOpponentForceDisposition(army)].filter(Boolean).join(" · ");
+    tdArmy.textContent = `${getOpponentPlayerName(army, slot.army_index)} (${armyDetail})`;
     tr.appendChild(tdArmy);
 
-    const tdScenario = document.createElement("td");
-    tdScenario.textContent = gScenario ? scenarioLabel(gScenario) : "—";
-    tr.appendChild(tdScenario);
-
-    const tdLayout = document.createElement("td");
-    tdLayout.textContent = slot.layout_n ? `#${slot.layout_n}` : "—";
-    tr.appendChild(tdLayout);
+    const tdTerrain = document.createElement("td");
+    tdTerrain.textContent = getTerrainLabelForSlot(slot);
+    tr.appendChild(tdTerrain);
 
     // Matchup badge
     const key = `${slot.player_id}-${slot.army_index}`;
@@ -1501,7 +1585,7 @@ function setActiveSlot(gameNo) {
   });
 
   renderLayoutsStrip();
-  setFightStatus(`Selecting pairing for Game ${gameNo}. Choose Scenario/Layout, then click a matrix cell.`, "unsaved");
+  setFightStatus(`Selecting pairing for Game ${gameNo}. Click a matrix cell, then choose one of its 3 terrain maps.`, "unsaved");
 }
 
 function assignPairingToSlot(gameNo, playerId, armyIndex) {
@@ -1511,6 +1595,8 @@ function assignPairingToSlot(gameNo, playerId, armyIndex) {
       if (slot.player_id === playerId || slot.army_index === armyIndex) {
         slot.player_id = null;
         slot.army_index = null;
+        slot.layout_n = null;
+        slot.terrain_map_id = null;
         slot.real_score = null;
       }
     }
@@ -1518,8 +1604,14 @@ function assignPairingToSlot(gameNo, playerId, armyIndex) {
 
   const slot = gPairings.find(s => s.game_no === gameNo);
   if (slot) {
+    const pairingChanged = slot.player_id !== playerId || slot.army_index !== armyIndex;
     slot.player_id = playerId;
     slot.army_index = armyIndex;
+    if (pairingChanged) {
+      slot.layout_n = null;
+      slot.terrain_map_id = null;
+      slot.real_score = null;
+    }
   }
 
   buildMatrixTable();
@@ -1528,12 +1620,6 @@ function assignPairingToSlot(gameNo, playerId, armyIndex) {
   refreshAllLayoutDropdowns();
 
   markPairingsDirty();
-
-  // Auto-advance to next unfilled game (only change via Clear).
-  const nextSlot =
-    gPairings.find(s => s.game_no > gameNo && (!s.player_id || typeof s.army_index !== "number")) ||
-    gPairings.find(s => s.game_no < gameNo && (!s.player_id || typeof s.army_index !== "number"));
-  if (nextSlot) setActiveSlot(nextSlot.game_no);
 
   resetAssistantState();
   refreshAssistantAdvice();
@@ -1597,12 +1683,10 @@ function resetPairings() {
   if (!confirm("Reset all pairings and start from scratch?")) return;
 
   gScenario = null;
-  const scenarioSelect = document.getElementById("scenario-select");
-  if (scenarioSelect) scenarioSelect.value = "";
 
   gPairings = [];
   for (let i = 1; i <= 8; i++) {
-    gPairings.push({ game_no: i, player_id: null, army_index: null, layout_n: null, real_score: null });
+    gPairings.push({ game_no: i, player_id: null, army_index: null, layout_n: null, terrain_map_id: null, real_score: null });
   }
 
   buildGameSlots();
@@ -1650,9 +1734,10 @@ async function loadFightData() {
   if (oppLabel) oppLabel.textContent = `Opponent: ${game.opponent_name || "Unknown"}`;
   if (cntLabel) cntLabel.textContent = `${gArmies.length} codex`;
 
-  // 2) Load layouts inventory
-  const resLayouts = await fetch("/api/layouts");
-  gLayouts = resLayouts.ok ? await resLayouts.json() : {};
+  // 2) Load force-disposition terrain inventory
+  const resTerrainLayouts = await fetch("/api/terrain-layouts");
+  const terrainData = resTerrainLayouts.ok ? await resTerrainLayouts.json() : {};
+  gTerrainLayouts = terrainData.combinations || {};
 
   // 3) Load existing pairings
   const resPairings = await fetch(`/api/games/${window.GAME_ID}/pairings`);
@@ -1662,8 +1747,6 @@ async function loadFightData() {
   gPairings = ensure8Slots(pairingsData.pairings);
 
   gScenario = pairingsData.scenario || null;
-  const scenarioSelect = document.getElementById("scenario-select");
-  if (scenarioSelect) scenarioSelect.value = gScenario || "";
 
   buildGameSlots();
   buildMatrixTable();
@@ -1773,30 +1856,6 @@ document.addEventListener("DOMContentLoaded", async () => {
     assistantEnemyAcceptSelect.addEventListener("change", () => {
       gAssistantAcceptedOurAttacker = assistantEnemyAcceptSelect.value ? parseInt(assistantEnemyAcceptSelect.value, 10) : null;
       refreshAssistantAdvice();
-    });
-  }
-
-  const scenarioSelect = document.getElementById("scenario-select");
-  if (scenarioSelect) {
-    scenarioSelect.addEventListener("change", () => {
-      const newScenario = scenarioSelect.value || null;
-
-      // If changing scenario mid-run, clear ALL chosen layouts (but keep pairings)
-      if (gScenario && newScenario && gScenario !== newScenario) {
-        const ok = confirm("Changing scenario will clear all selected layout numbers. Continue?");
-        if (!ok) {
-          scenarioSelect.value = gScenario;
-          return;
-        }
-        gPairings.forEach(p => { p.layout_n = null; });
-        markPairingsDirty();
-      }
-
-      gScenario = newScenario;
-      renderLayoutsStrip();
-      refreshAllLayoutDropdowns();
-      refreshGameCards();
-      refreshSummaryTable();
     });
   }
 

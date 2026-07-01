@@ -240,6 +240,15 @@
       letter-spacing: 0.14em;
     }
 
+    .opponent-force-disposition {
+      display: block;
+      color: #d0d0d0;
+      font-size: 0.62rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      margin-top: 0.12rem;
+    }
+
     .faction-tooltip {
       position: absolute;
       left: 50%;
@@ -267,6 +276,14 @@
       white-space: pre-wrap;
       word-break: break-word;
       font-family: monospace;
+    }
+
+    .tooltip-meta {
+      color: #bbb;
+      font-size: 0.72rem;
+      margin-bottom: 0.4rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
     }
 
     .faction-header:hover .faction-tooltip {
@@ -499,52 +516,11 @@
         </div>
       </div>
 
-      <div class="info-panel">
-        <h2>Mission</h2>
-        <div class="layouts-controls">
-          <label style="font-size:0.75rem; text-transform:uppercase; letter-spacing:0.16em; color:#aaa;">
-            Mission
-          </label>
-          <select id="matrix-mission-select" class="layout-select">
-            <option value="">— Select mission —</option>
-            <option value="LINCHPIN">Linchpin</option>
-            <option value="SCORCHED_EARTH">Scorched Earth</option>
-            <option value="TAKE_AND_HOLD">Take and Hold</option>
-            <option value="TERRAFORM">Terraform</option>
-            <option value="HIDDEN_SUPPLIES">Hidden Supplies</option>
-            <option value="PURGE_THE_FOE">Purge the Foe</option>
-            <option value="SUPPLY_DROP">Supply Drop</option>
-            <option value="THE_RITUAL">The Ritual</option>
-            <option value="UNEXPLODED_ORDNANCE">Unexploded Ordnance</option>
-            <option value="BURDEN_OF_TRUST">Burden of Trust</option>
-          </select>
-          <span class="info-hint">Informational only</span>
-        </div>
-      </div>
-
       <div class="layouts-panel">
-        <h2>Layouts</h2>
-
-        <div class="layouts-controls">
-          <label style="font-size:0.75rem; text-transform:uppercase; letter-spacing:0.16em; color:#aaa;">
-            Scenario
-          </label>
-          <select id="matrix-scenario-select" class="layout-select">
-            <option value="">— Select scenario —</option>
-            <option value="HAMMER_ANVIL">Hammer and Anvil</option>
-            <option value="SEEK_DESTROY">Seek and Destroy</option>
-            <option value="CRUCIBLE_BATTLE">Crucible Battle</option>
-            <option value="TIPPING_POINTS">Tipping Points</option>
-            <option value="DAWN_OF_WAR">Dawn of War</option>
-            <option value="SWEEPING_ENGAGEMENT">Sweeping Engagement</option>
-          </select>
-
-          <span id="matrix-layout-hint" class="layouts-hint">
-            Choose a scenario to display available layout images.
-          </span>
-        </div>
-
-        <div id="matrix-layouts-strip" class="layouts-strip"></div>
+        <h2>Terrain maps</h2>
+        <span class="layouts-hint">
+          Terrain is selected on the Fight page after a matchup is chosen. The 3 available maps are based on your force disposition versus the opponent force disposition.
+        </span>
       </div>
 
       <div class="notes-block">

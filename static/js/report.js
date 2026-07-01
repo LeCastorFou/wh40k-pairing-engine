@@ -110,11 +110,13 @@ function renderDetails(row) {
   details.forEach(d => {
     const item = document.createElement("div");
     item.className = "details-item";
+    const opponentDetail = [d.faction || "—", d.force_disposition || ""].filter(Boolean).join(" · ");
+    const terrain = d.terrain || d.terrain_map_id || "—";
 
     const left = document.createElement("div");
     left.innerHTML = `
       <div><strong>Game #${d.game_id}</strong> <span class="muted">vs</span> <strong>${d.opponent || "Unknown"}</strong></div>
-      <div class="muted">Board: ${d.scenario || "—"} · Round: ${d.game_no || "—"} · Opponent: ${d.faction || "—"}</div>
+      <div class="muted">Terrain: ${terrain} · Round: ${d.game_no || "—"} · Opponent: ${opponentDetail}</div>
     `;
 
     const right = document.createElement("div");

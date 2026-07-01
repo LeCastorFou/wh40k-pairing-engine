@@ -146,9 +146,11 @@ function renderGames(games) {
         title.className = "army-title";
         const playerName = (army.player_name || "").trim();
         const faction = army.faction || "Unknown Faction";
+        const forceDisposition = (army.force_disposition || "").trim();
+        const armyDetail = forceDisposition ? `${faction} · ${forceDisposition}` : faction;
         title.textContent = playerName
-          ? `#${idx + 1} – ${playerName} · ${faction}`
-          : `#${idx + 1} – ${faction}`;
+          ? `#${idx + 1} – ${playerName} · ${armyDetail}`
+          : `#${idx + 1} – ${armyDetail}`;
 
         const pre = document.createElement("pre");
         pre.textContent = army.list || "";

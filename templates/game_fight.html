@@ -181,6 +181,14 @@
       text-transform: uppercase;
       letter-spacing: 0.14em;
     }
+    .opponent-force-disposition {
+      display: block;
+      color: #d0d0d0;
+      font-size: 0.62rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      margin-top: 0.12rem;
+    }
     .faction-tooltip {
       position: absolute; left: 50%; top: 100%;
       transform: translateX(-50%);
@@ -199,6 +207,13 @@
       visibility: hidden;
       transition: opacity 0.15s ease-out, visibility 0.15s ease-out;
       white-space: normal;
+    }
+    .tooltip-meta {
+      color: #bbb;
+      font-size: 0.72rem;
+      margin-bottom: 0.4rem;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
     }
     .faction-tooltip pre { margin: 0; white-space: pre-wrap; word-break: break-word; font-family: monospace; }
     .faction-header:hover .faction-tooltip { opacity: 1; visibility: visible; }
@@ -257,6 +272,86 @@
       display: inline-block;
       margin-top: 0.1rem;
       width: fit-content;
+    }
+
+    .terrain-strip {
+      display: grid;
+      grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+      gap: 0.6rem;
+      margin-top: 0.6rem;
+    }
+
+    .terrain-card {
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 10px;
+      background: rgba(0,0,0,0.35);
+      padding: 0.55rem;
+      color: #f5f5f5;
+      text-align: left;
+      box-shadow: none;
+      display: flex;
+      flex-direction: column;
+      gap: 0.35rem;
+      min-height: 150px;
+      width: 100%;
+    }
+
+    .terrain-card:hover {
+      transform: translateY(-1px);
+      box-shadow: 0 0 16px rgba(255,255,255,0.12);
+    }
+
+    .terrain-card.selected {
+      border-color: #ef9a9a;
+      box-shadow: 0 0 20px rgba(229,115,115,0.25);
+    }
+
+    .terrain-card-title {
+      font-size: 0.72rem;
+      text-transform: uppercase;
+      letter-spacing: 0.16em;
+      color: #fff;
+    }
+
+    .terrain-card-meta {
+      font-size: 0.68rem;
+      color: #bbb;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+    }
+
+    .terrain-card img {
+      display: block;
+      width: 100%;
+      border-radius: 8px;
+      border: 1px solid rgba(255,255,255,0.08);
+    }
+
+    .terrain-placeholder {
+      flex: 1;
+      min-height: 82px;
+      border-radius: 8px;
+      border: 1px dashed rgba(255,255,255,0.22);
+      background:
+        linear-gradient(135deg, rgba(255,255,255,0.05), transparent),
+        rgba(8,8,12,0.9);
+      color: #aaa;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      text-align: center;
+      font-size: 0.78rem;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+    }
+
+    .terrain-empty {
+      color: #888;
+      font-size: 0.85rem;
+    }
+
+    .terrain-error {
+      color: #ff8a80;
     }
 
     .notes-block {
@@ -389,7 +484,7 @@
   <div class="top-bar">
     <div class="title-block">
       <h1>Fight</h1>
-      <p>Lock the 8 games of the round with scenario + layout + matchup rating.</p>
+      <p>Lock the 8 games of the round with matchup rating and force-disposition terrain.</p>
     </div>
     <div>
       <a href="{{ url_for('games_list_page') }}" class="back-link">&larr; Back to Games</a>
@@ -420,32 +515,12 @@
         </div>
 
         <div style="margin-top:0.9rem;">
-            <h2 style="margin-bottom:0.5rem;">Layouts</h2>
-
-            <div style="display:flex; gap:0.6rem; align-items:center; flex-wrap:wrap; margin-bottom:0.6rem;">
-                <label style="font-size:0.75rem; text-transform:uppercase; letter-spacing:0.16em; color:#aaa;">
-                Scenario
-                </label>
-
-                <select id="scenario-select"
-                        style="background:#111; border:1px solid #444; border-radius:999px; color:#f5f5f5;
-                            padding:0.35rem 0.8rem; font-size:0.8rem;">
-                <option value="">— Select scenario —</option>
-                <option value="HAMMER_ANVIL">Hammer and Anvil</option>
-                <option value="SEEK_DESTROY">Seek and Destroy</option>
-                <option value="CRUCIBLE_BATTLE">Crucible Battle</option>
-                <option value="TIPPING_POINTS">Tipping Points</option>
-                <option value="DAWN_OF_WAR">Dawn of War</option>
-                <option value="SWEEPING_ENGAGEMENT">Sweeping Engagement</option>
-                </select>
-
-                <span id="scenario-hint" style="font-size:0.8rem; color:#bbb;">
-                Choose a scenario to display available layout images.
-                </span>
-            </div>
-
-            <div id="layouts-strip" style="display:flex; gap:0.6rem; flex-wrap:wrap;"></div>
-            </div>
+          <h2 style="margin-bottom:0.5rem;">Terrain maps</h2>
+          <div id="terrain-hint" style="font-size:0.8rem; color:#bbb;">
+            Select a game, then click a matrix matchup to display the 3 maps for that force disposition combination.
+          </div>
+          <div id="layouts-strip" class="terrain-strip"></div>
+        </div>
 
       </div>
     </section>
@@ -456,7 +531,7 @@
         <h2>Games (1–8)</h2>
 
         <div class="status-bar">
-          <div>Pick a game → choose Scenario/Layout → click a matrix cell.</div>
+          <div>Pick a game → click a matrix cell → choose one of the 3 terrain maps.</div>
           <div>
             <button id="fight-reset-btn">Reset</button>
             <button id="fight-save-btn" disabled>Save pairings</button>

@@ -45,9 +45,13 @@ create table if not exists public.player_lists (
     player_id bigint not null references public.players(id) on delete cascade,
     position integer not null,
     name text not null,
+    force_disposition text not null default '',
     list_text text not null,
     unique (player_id, position)
 );
+
+alter table public.player_lists
+add column if not exists force_disposition text not null default '';
 
 create table if not exists public.player_archetypes (
     id bigserial primary key,
@@ -55,9 +59,13 @@ create table if not exists public.player_archetypes (
     position integer not null,
     faction text not null,
     role text not null,
+    force_disposition text not null default '',
     comment text default '',
     unique (player_id, position)
 );
+
+alter table public.player_archetypes
+add column if not exists force_disposition text not null default '';
 
 create table if not exists public.games (
     id bigint primary key,
