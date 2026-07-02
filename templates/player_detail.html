@@ -87,17 +87,25 @@
         <h2 style="margin:0 0 .6rem; text-transform:uppercase; letter-spacing:.12em; font-size:.9rem;">Add Match</h2>
 
         <div style="display:grid; gap:.6rem;">
-          <input id="match-faction" type="text" placeholder="Faction encountered (e.g. Orks)" />
+          <select id="match-faction"></select>
+          <div style="display:grid; grid-template-columns: 1fr 1fr; gap:.6rem;">
+            <input id="match-date" type="date" />
+            <input id="match-score" type="number" min="0" max="20" step="1" placeholder="Score /20" />
+          </div>
+          <div style="display:grid; grid-template-columns: 1fr 1fr; gap:.6rem;">
+            <select id="match-first-turn">
+              <option value="">Turn 1</option>
+              <option value="true">We had T1</option>
+              <option value="false">Opponent had T1</option>
+            </select>
+            <select id="match-deployment"></select>
+          </div>
           <div style="display:grid; grid-template-columns: 1fr 1fr; gap:.6rem;">
             <select id="match-player-force-disposition"></select>
             <select id="match-opponent-force-disposition"></select>
           </div>
           <div style="display:grid; grid-template-columns: 1fr 1fr; gap:.6rem;">
-            <select id="match-result">
-              <option value="WIN">WIN</option>
-              <option value="DRAW">DRAW</option>
-              <option value="LOSS">LOSS</option>
-            </select>
+            <input id="match-opponent-name" type="text" placeholder="Opponent player / team" />
             <select id="match-level">
               <option value="1">Level 1 (new)</option>
               <option value="2">Level 2</option>

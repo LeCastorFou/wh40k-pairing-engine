@@ -274,6 +274,7 @@
         <div class="flow">
           <div class="flow-item"><div><strong>Set up team access.</strong> Sign in, join or create a team, then work inside that team context.</div></div>
           <div class="flow-item"><div><strong>Prepare players.</strong> Add players, maintain their lists, choose default lists, and record force dispositions.</div></div>
+          <div class="flow-item"><div><strong>Log individual games.</strong> Use Matchup Data to add standalone games with date, score, turn order, deployment, faction, force dispositions, and notes.</div></div>
           <div class="flow-item"><div><strong>Prepare role options.</strong> Define player archetypes for defense, attack, and blunt roles, optionally with a force disposition.</div></div>
           <div class="flow-item"><div><strong>Create the opponent game.</strong> Enter opponent players, factions, lists, and force dispositions.</div></div>
           <div class="flow-item"><div><strong>Lock your roster.</strong> Pick 1 to 8 players for that game, freezing their default list information into the game snapshot.</div></div>
@@ -295,11 +296,30 @@
             <li>Assign one of the five force dispositions to each list.</li>
             <li>Choose a default list used when locking a game roster.</li>
             <li>Open a player profile to review lists and match history.</li>
-            <li>Add match history with faction, result, opponent level, your force disposition, opponent force disposition, and comments.</li>
+            <li>Add detailed individual game history from Matchup Data, or from a player profile when already viewing that player.</li>
             <li>Captains can delete players; player access can use the team tools except player deletion.</li>
           </ul>
           <div class="link-grid">
             <a class="link-card" href="{{ url_for('players_page') }}">Players & Lists<span>Roster and list management</span></a>
+            <a class="link-card" href="{{ url_for('matchup_data_page') }}">Matchup Data<span>Individual game logging</span></a>
+          </div>
+        </div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-inner">
+          <h2>Matchup Data</h2>
+          <p>Use this page when you want to add a single game quickly without opening a player profile.</p>
+          <ul>
+            <li>Choose the player from a dropdown, then select their list when known.</li>
+            <li>Select opponent faction from the controlled faction list.</li>
+            <li>Record game date, 0-20 score, whether you had turn 1, deployment, opponent level, and both force dispositions.</li>
+            <li>Add optional opponent name, event context, and notes for later review.</li>
+            <li>Filter the recap table by player, faction, result, score range, turn 1, deployment, and force dispositions.</li>
+            <li>Use the filtered summary to compare average score, winrate, and turn-order impact before deeper matchup stats are built.</li>
+          </ul>
+          <div class="link-grid">
+            <a class="link-card" href="{{ url_for('matchup_data_page') }}">Matchup Data<span>Manual MU data capture</span></a>
           </div>
         </div>
       </div>
@@ -384,10 +404,11 @@
             <li>Compare real score against expected matrix score.</li>
             <li>Track average score and average delta.</li>
             <li>Inspect details by opponent, faction, force disposition, terrain, state, and score.</li>
-            <li>Use player match history for qualitative notes outside formal team games.</li>
+            <li>Use Matchup Data for standalone game history outside formal team games.</li>
           </ul>
           <div class="link-grid">
             <a class="link-card" href="{{ url_for('report_page') }}">Reports<span>Performance analysis</span></a>
+            <a class="link-card" href="{{ url_for('matchup_data_page') }}">Matchup Data<span>Filtered standalone games</span></a>
           </div>
         </div>
       </div>

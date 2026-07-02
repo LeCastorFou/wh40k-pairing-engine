@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 from flask import Flask, render_template, request, jsonify, send_from_directory,send_file
 from flask import session, redirect, url_for, g
 from functools import lru_cache, wraps
@@ -82,6 +84,54 @@ FORCE_DISPOSITIONS = [
     "Disruption",
 ]
 
+FACTIONS = [
+    "Adepta Sororitas",
+    "Adeptus Astartes (Space Marines)",
+    "Adeptus Custodes",
+    "Adeptus Mechanicus",
+    "Aeldari",
+    "Agents of the Imperium",
+    "Astra Militarum",
+    "Black Templars",
+    "Blood Angels",
+    "Chaos Daemons",
+    "Chaos Knights",
+    "Chaos Space Marines",
+    "Dark Angels",
+    "Death Guard",
+    "Drukhari",
+    "Emperor's Children",
+    "Genestealer Cults",
+    "Grey Knights",
+    "Harlequins",
+    "Imperial Knights",
+    "Leagues of Votann",
+    "Necrons",
+    "Orks",
+    "Space Wolves",
+    "T'au Empire",
+    "Thousand Sons",
+    "Tyranids",
+    "World Eaters",
+    "Ynnari",
+]
+
+MATCHUP_DEPLOYMENTS = [
+    "Dawn of War",
+    "Search and Destroy",
+    "Hammer and Anvil",
+    "Tipping Point",
+    "Crucible of Battle",
+]
+
+MATCHUP_DEPLOYMENT_ALIASES = {
+    "seek and destroy": "Search and Destroy",
+    "search and destroy": "Search and Destroy",
+    "tipping points": "Tipping Point",
+}
+
+ALLOWED_MATCH_RESULTS = {"WIN", "DRAW", "LOSS"}
+
 TERRAIN_MAPS_PER_COMBINATION = 3
 TERRAIN_LAYOUT_DIR = DATA_DIR / "terrain"
 TERRAIN_LAYOUT_DIR.mkdir(parents=True, exist_ok=True)
@@ -142,6 +192,82 @@ def normalize_force_disposition(value):
         if raw.lower() == item.lower():
             return item
     return ""
+
+
+def normalize_choice(value, choices):
+    if not isinstance(value, str):
+        return ""
+    raw = value.strip()
+    for item in choices:
+        if raw.lower() == item.lower():
+            return item
+    return ""
+
+
+def normalize_faction(value):
+    return normalize_choice(value, FACTIONS)
+
+
+def normalize_matchup_deployment(value):
+    if not isinstance(value, str):
+        return ""
+    raw = value.strip()
+    alias = MATCHUP_DEPLOYMENT_ALIASES.get(raw.lower())
+    if alias:
+        return alias
+    return normalize_choice(raw, MATCHUP_DEPLOYMENTS)
+
+
+def parse_match_date(value):
+    if not isinstance(value, str) or not value.strip():
+        return ""
+    raw = value.strip()
+    try:
+        if "T" in raw:
+            return datetime.fromisoformat(raw).date().isoformat()
+        return datetime.fromisoformat(raw).date().isoformat()
+    except ValueError:
+        return ""
+
+
+def parse_match_score(value):
+    if value is None or value == "":
+        return None
+    try:
+        if isinstance(value, str) and not value.strip():
+            return None
+        if isinstance(value, float) and not value.is_integer():
+            return None
+        score = int(value)
+    except (TypeError, ValueError):
+        return None
+    if not 0 <= score <= 20:
+        return None
+    return score
+
+
+def result_from_score(score):
+    if not isinstance(score, int):
+        return ""
+    if score > 10:
+        return "WIN"
+    if score < 10:
+        return "LOSS"
+    return "DRAW"
+
+
+def parse_optional_bool(value):
+    if value is None or value == "":
+        return None
+    if isinstance(value, bool):
+        return value
+    if isinstance(value, str):
+        normalized = value.strip().lower()
+        if normalized in {"true", "1", "yes", "y", "oui"}:
+            return True
+        if normalized in {"false", "0", "no", "n", "non"}:
+            return False
+    return None
 
 
 def force_disposition_slug(value):
@@ -3121,34 +3247,274 @@ def api_get_player(player_id):
     return jsonify(p)
 
 
+def next_match_id(history):
+    existing_ids = [
+        m.get("id")
+        for m in history
+        if isinstance(m, dict) and isinstance(m.get("id"), int)
+    ]
+    return (max(existing_ids) + 1) if existing_ids else 1
+
+
+def build_match_entry_from_payload(
+    payload,
+    match_id,
+    *,
+    require_extended=False,
+    require_opponent_level=True,
+    strict_faction=False,
+):
+    raw_faction = (payload.get("faction") or "").strip()
+    faction = normalize_faction(raw_faction)
+    if strict_faction and raw_faction and not faction:
+        return None, "Faction must be selected from the allowed list"
+    if not faction:
+        faction = raw_faction
+    if not faction:
+        return None, "Faction is required"
+
+    score = parse_match_score(payload.get("score"))
+    if require_extended and score is None:
+        return None, "Score must be an integer between 0 and 20"
+
+    result = result_from_score(score) if isinstance(score, int) else (payload.get("result") or "").strip().upper()
+    if result not in ALLOWED_MATCH_RESULTS:
+        return None, "Result must be WIN, DRAW or LOSS"
+
+    date_value = parse_match_date(payload.get("date"))
+    if require_extended and not date_value:
+        return None, "Date is required and must be an ISO date"
+    if not date_value:
+        date_value = datetime.now().isoformat(timespec="seconds")
+
+    opponent_level_raw = payload.get("opponent_level")
+    if opponent_level_raw is None and not require_opponent_level:
+        opponent_level = None
+    else:
+        if opponent_level_raw is None:
+            return None, "Opponent level is required"
+        try:
+            opponent_level = int(opponent_level_raw)
+        except Exception:
+            return None, "Opponent level must be an integer"
+        if opponent_level < 1 or opponent_level > 5:
+            return None, "Opponent level must be 1..5"
+
+    player_force_disposition = normalize_force_disposition(payload.get("player_force_disposition"))
+    opponent_force_disposition = normalize_force_disposition(payload.get("opponent_force_disposition"))
+    if not player_force_disposition:
+        return None, "Your force disposition is required"
+    if not opponent_force_disposition:
+        return None, "Opponent force disposition is required"
+
+    has_first_turn = parse_optional_bool(payload.get("has_first_turn"))
+    if require_extended and has_first_turn is None:
+        return None, "Turn 1 value is required"
+
+    deployment = normalize_matchup_deployment(payload.get("deployment"))
+    if require_extended and not deployment:
+        return None, "Deployment is required"
+
+    entry = {
+        "id": match_id,
+        "date": date_value,
+        "faction": faction,
+        "result": result,
+        "opponent_level": opponent_level,
+        "player_force_disposition": player_force_disposition,
+        "opponent_force_disposition": opponent_force_disposition,
+        "comment": (payload.get("comment") or "").strip(),
+        "created_at": datetime.now().isoformat(timespec="seconds"),
+    }
+
+    if isinstance(score, int):
+        entry["score"] = score
+    if has_first_turn is not None:
+        entry["has_first_turn"] = has_first_turn
+    if deployment:
+        entry["deployment"] = deployment
+
+    optional_text_fields = {
+        "opponent_name": "opponent_name",
+        "event_name": "event_name",
+        "player_list_name": "player_list_name",
+    }
+    for source_key, target_key in optional_text_fields.items():
+        value = (payload.get(source_key) or "").strip()
+        if value:
+            entry[target_key] = value
+
+    return entry, None
+
+
+def flatten_matchup_history(players):
+    rows = []
+    for player in players:
+        if not isinstance(player, dict):
+            continue
+        player_id = player.get("id")
+        player_name = player.get("name") or f"Player {player_id}"
+        history = player.get("match_history") or []
+        if not isinstance(history, list):
+            continue
+        for match in history:
+            if not isinstance(match, dict):
+                continue
+            score = match.get("score")
+            if not isinstance(score, int):
+                score = None
+            result = (match.get("result") or result_from_score(score) or "").strip().upper()
+            rows.append({
+                "id": match.get("id"),
+                "player_id": player_id,
+                "player_name": player_name,
+                "date": match.get("date") or "",
+                "created_at": match.get("created_at") or "",
+                "faction": match.get("faction") or "",
+                "result": result if result in ALLOWED_MATCH_RESULTS else "",
+                "score": score,
+                "has_first_turn": match.get("has_first_turn") if isinstance(match.get("has_first_turn"), bool) else None,
+                "deployment": normalize_matchup_deployment(match.get("deployment")) or (match.get("deployment") or ""),
+                "opponent_name": match.get("opponent_name") or "",
+                "event_name": match.get("event_name") or "",
+                "player_list_name": match.get("player_list_name") or "",
+                "opponent_level": match.get("opponent_level"),
+                "player_force_disposition": normalize_force_disposition(match.get("player_force_disposition")),
+                "opponent_force_disposition": normalize_force_disposition(match.get("opponent_force_disposition")),
+                "comment": match.get("comment") or "",
+            })
+
+    rows.sort(
+        key=lambda item: (
+            (item.get("date") or "")[:10],
+            item.get("created_at") or "",
+            item.get("player_name") or "",
+            item.get("id") or 0,
+        ),
+        reverse=True,
+    )
+    return rows
+
+
+def matchup_summary(rows):
+    scored = [row for row in rows if isinstance(row.get("score"), int)]
+    wins = sum(1 for row in rows if row.get("result") == "WIN")
+    draws = sum(1 for row in rows if row.get("result") == "DRAW")
+    losses = sum(1 for row in rows if row.get("result") == "LOSS")
+    avg_score = (
+        round(sum(row["score"] for row in scored) / len(scored), 2)
+        if scored
+        else None
+    )
+
+    return {
+        "total": len(rows),
+        "scored": len(scored),
+        "wins": wins,
+        "draws": draws,
+        "losses": losses,
+        "avg_score": avg_score,
+        "winrate": round((wins / (wins + losses)) * 100, 1) if (wins + losses) else None,
+    }
+
+
+@app.route("/matchups")
+@login_required
+def matchup_data_page():
+    return render_template("matchups.html")
+
+
+@app.route("/api/matchups", methods=["GET"])
+@login_required
+def api_get_matchups():
+    players = load_players()
+    rows = flatten_matchup_history(players)
+    player_options = []
+    for player in players:
+        lists = player.get("lists") or []
+        list_names = player.get("list_names") or []
+        list_forces = player.get("list_force_dispositions") or []
+        player_options.append({
+            "id": player.get("id"),
+            "name": player.get("name") or f"Player {player.get('id')}",
+            "default_index": player.get("default_index"),
+            "default_force_disposition": default_force_disposition(player),
+            "lists": [
+                {
+                    "index": idx,
+                    "name": list_names[idx] if idx < len(list_names) else f"List #{idx + 1}",
+                    "force_disposition": normalize_force_disposition(
+                        list_forces[idx] if idx < len(list_forces) else ""
+                    ),
+                }
+                for idx, _ in enumerate(lists)
+            ],
+        })
+
+    return jsonify({
+        "matches": rows,
+        "summary": matchup_summary(rows),
+        "players": player_options,
+        "factions": FACTIONS,
+        "force_dispositions": FORCE_DISPOSITIONS,
+        "deployments": MATCHUP_DEPLOYMENTS,
+    })
+
+
+@app.route("/api/matchups", methods=["POST"])
+@login_required
+def api_add_matchup():
+    payload = request.get_json(silent=True) or {}
+    player_id = payload.get("player_id")
+    if not isinstance(player_id, int):
+        return jsonify({"error": "player_id must be an integer"}), 400
+
+    players = load_players()
+    player = next((x for x in players if x.get("id") == player_id), None)
+    if not player:
+        return jsonify({"error": "Player not found"}), 404
+
+    history = player.setdefault("match_history", [])
+    entry, error = build_match_entry_from_payload(
+        payload,
+        next_match_id(history),
+        require_extended=True,
+        require_opponent_level=True,
+        strict_faction=True,
+    )
+    if error:
+        return jsonify({"error": error}), 400
+
+    history.append(entry)
+    save_players(players)
+    return jsonify({"status": "ok", "match": entry}), 201
+
+
+@app.route("/api/matchups/<int:player_id>/<int:match_id>", methods=["DELETE"])
+@login_required
+def api_delete_matchup(player_id, match_id):
+    players = load_players()
+    player = next((x for x in players if x.get("id") == player_id), None)
+    if not player:
+        return jsonify({"error": "Player not found"}), 404
+
+    history = player.get("match_history") or []
+    new_history = [
+        match for match in history
+        if not (isinstance(match, dict) and match.get("id") == match_id)
+    ]
+    if len(new_history) == len(history):
+        return jsonify({"error": "Match not found"}), 404
+
+    player["match_history"] = new_history
+    save_players(players)
+    return jsonify({"status": "ok"})
+
+
 @app.route("/api/players/<int:player_id>/matches", methods=["POST"])
 @login_required
 def api_add_player_match(player_id):
     payload = request.get_json(silent=True) or {}
-
-    faction = (payload.get("faction") or "").strip()
-    result = (payload.get("result") or "").strip().upper()  # WIN/DRAW/LOSS
-    opponent_level = payload.get("opponent_level")
-    player_force_disposition = normalize_force_disposition(payload.get("player_force_disposition"))
-    opponent_force_disposition = normalize_force_disposition(payload.get("opponent_force_disposition"))
-    comment = (payload.get("comment") or "").strip()
-
-    if not faction:
-        return jsonify({"error": "Faction is required"}), 400
-    if result not in {"WIN", "DRAW", "LOSS"}:
-        return jsonify({"error": "Result must be WIN, DRAW or LOSS"}), 400
-    if not player_force_disposition:
-        return jsonify({"error": "Your force disposition is required"}), 400
-    if not opponent_force_disposition:
-        return jsonify({"error": "Opponent force disposition is required"}), 400
-    if opponent_level is None:
-        return jsonify({"error": "Opponent level is required"}), 400
-    try:
-        opponent_level = int(opponent_level)
-    except Exception:
-        return jsonify({"error": "Opponent level must be an integer"}), 400
-    if opponent_level < 1 or opponent_level > 5:
-        return jsonify({"error": "Opponent level must be 1..5"}), 400
 
     players = load_players()
     p = next((x for x in players if x.get("id") == player_id), None)
@@ -3156,19 +3522,16 @@ def api_add_player_match(player_id):
         return jsonify({"error": "Player not found"}), 404
 
     p.setdefault("match_history", [])
-    existing_ids = [m.get("id") for m in p["match_history"] if isinstance(m, dict) and "id" in m]
-    next_id = (max(existing_ids) + 1) if existing_ids else 1
+    entry, error = build_match_entry_from_payload(
+        payload,
+        next_match_id(p["match_history"]),
+        require_extended=False,
+        require_opponent_level=True,
+        strict_faction=False,
+    )
+    if error:
+        return jsonify({"error": error}), 400
 
-    entry = {
-        "id": next_id,
-        "date": datetime.now().isoformat(timespec="seconds"),
-        "faction": faction,
-        "result": result,
-        "opponent_level": opponent_level,
-        "player_force_disposition": player_force_disposition,
-        "opponent_force_disposition": opponent_force_disposition,
-        "comment": comment
-    }
     p["match_history"].append(entry)
     save_players(players)
 
